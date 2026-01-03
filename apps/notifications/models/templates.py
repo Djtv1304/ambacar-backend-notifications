@@ -2,6 +2,7 @@
 Notification template models.
 """
 from django.db import models
+from django.core.exceptions import ValidationError
 
 from apps.core.models import BaseModel
 from apps.core.constants import NotificationChannel, NotificationTarget
@@ -58,6 +59,34 @@ class NotificationTemplate(BaseModel):
         help_text="Optional: workshop-specific template"
     )
 
+    # OBLIGATORIO: Tipo de servicio principal
+    service_type = models.ForeignKey(
+        "notifications.ServiceType",
+        on_delete=models.CASCADE,
+        related_name="templates",
+        limit_choices_to={"parent__isnull": True},  # Solo tipos principales
+        help_text="Required: main service type for this template"
+    )
+
+    # OBLIGATORIO: Fase del servicio
+    phase = models.ForeignKey(
+        "notifications.ServicePhase",
+        on_delete=models.CASCADE,
+        related_name="templates",
+        help_text="Required: service phase for this template"
+    )
+
+    # OPCIONAL: Subtipo (solo para Avería/Revisión y Colisión/Pintura)
+    subtype = models.ForeignKey(
+        "notifications.ServiceType",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="subtype_templates",
+        limit_choices_to={"parent__isnull": False},  # Solo subtipos
+        help_text="Optional: specific subtype (for services with subtypes)"
+    )
+
     class Meta:
         db_table = "notification_templates"
         ordering = ["-created_at"]
@@ -65,12 +94,23 @@ class NotificationTemplate(BaseModel):
             models.Index(fields=["channel", "target"]),
             models.Index(fields=["taller_id", "channel"]),
             models.Index(fields=["is_active", "channel"]),
+            models.Index(fields=["service_type", "phase", "channel"]),
+            models.Index(fields=["service_type", "subtype", "phase"]),
         ]
         verbose_name = "Notification Template"
         verbose_name_plural = "Notification Templates"
 
     def __str__(self):
-        return f"{self.name} ({self.get_channel_display()})"
+        subtype_info = f" > {self.subtype.name}" if self.subtype else ""
+        return f"{self.name} ({self.service_type.name}{subtype_info} - {self.phase.name})"
+
+    def clean(self):
+        """Validate that subtype belongs to the selected service_type."""
+        super().clean()
+        if self.subtype and self.subtype.parent != self.service_type:
+            raise ValidationError({
+                "subtype": "El subtipo debe pertenecer al tipo de servicio seleccionado"
+            })
 
     def get_variables(self) -> list:
         """Extract variable names from the template body."""

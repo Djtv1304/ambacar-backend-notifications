@@ -13,6 +13,9 @@ class NotificationTemplateSerializer(serializers.ModelSerializer):
     """
     variables = serializers.SerializerMethodField(read_only=True)
     preview = serializers.SerializerMethodField(read_only=True)
+    service_type_name = serializers.SerializerMethodField(read_only=True)
+    phase_name = serializers.SerializerMethodField(read_only=True)
+    subtype_name = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = NotificationTemplate
@@ -26,6 +29,12 @@ class NotificationTemplateSerializer(serializers.ModelSerializer):
             "is_default",
             "is_active",
             "taller_id",
+            "service_type_id",
+            "service_type_name",
+            "phase_id",
+            "phase_name",
+            "subtype_id",
+            "subtype_name",
             "variables",
             "preview",
             "created_at",
@@ -40,6 +49,18 @@ class NotificationTemplateSerializer(serializers.ModelSerializer):
     def get_preview(self, obj) -> str:
         """Preview the template with example values."""
         return template_service.preview_template(obj.body)
+
+    def get_service_type_name(self, obj) -> str:
+        """Get the service type name."""
+        return obj.service_type.name if obj.service_type else None
+
+    def get_phase_name(self, obj) -> str:
+        """Get the phase name."""
+        return obj.phase.name if obj.phase else None
+
+    def get_subtype_name(self, obj) -> str | None:
+        """Get the subtype name if exists."""
+        return obj.subtype.name if obj.subtype else None
 
 
 class NotificationTemplateCreateSerializer(serializers.ModelSerializer):
@@ -58,6 +79,9 @@ class NotificationTemplateCreateSerializer(serializers.ModelSerializer):
             "is_default",
             "is_active",
             "taller_id",
+            "service_type",  # OBLIGATORIO
+            "phase",         # OBLIGATORIO
+            "subtype",       # OPCIONAL
         ]
 
     def validate_body(self, value):
@@ -65,6 +89,18 @@ class NotificationTemplateCreateSerializer(serializers.ModelSerializer):
         if not value or not value.strip():
             raise serializers.ValidationError("Template body cannot be empty")
         return value
+
+    def validate(self, data):
+        """Validate that subtype belongs to service_type."""
+        service_type = data.get("service_type")
+        subtype = data.get("subtype")
+
+        if subtype and subtype.parent != service_type:
+            raise serializers.ValidationError({
+                "subtype": "El subtipo debe pertenecer al tipo de servicio seleccionado"
+            })
+
+        return data
 
 
 class TemplatePreviewSerializer(serializers.Serializer):

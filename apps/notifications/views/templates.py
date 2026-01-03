@@ -1,6 +1,7 @@
 """
 Views for notification templates.
 """
+from django.db import models
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -57,7 +58,9 @@ class NotificationTemplateViewSet(viewsets.ModelViewSet):
         return NotificationTemplateSerializer
 
     def get_queryset(self):
-        queryset = NotificationTemplate.objects.all()
+        queryset = NotificationTemplate.objects.select_related(
+            "service_type", "phase", "subtype"
+        ).all()
 
         # Filter by channel
         channel = self.request.query_params.get("channel")
@@ -78,6 +81,25 @@ class NotificationTemplateViewSet(viewsets.ModelViewSet):
         is_active = self.request.query_params.get("is_active")
         if is_active is not None:
             queryset = queryset.filter(is_active=is_active.lower() == "true")
+
+        # Filter by service_type
+        service_type_id = self.request.query_params.get("service_type_id")
+        if service_type_id:
+            queryset = queryset.filter(service_type_id=service_type_id)
+
+        # Filter by phase
+        phase_id = self.request.query_params.get("phase_id")
+        if phase_id:
+            queryset = queryset.filter(phase_id=phase_id)
+
+        # Filter by subtype (includes templates without subtype)
+        subtype_id = self.request.query_params.get("subtype_id")
+        if subtype_id:
+            # Include templates specific to the subtype OR generic (no subtype)
+            queryset = queryset.filter(
+                models.Q(subtype_id=subtype_id) |
+                models.Q(subtype__isnull=True)
+            )
 
         return queryset.order_by("-created_at")
 
@@ -116,4 +138,91 @@ class NotificationTemplateViewSet(viewsets.ModelViewSet):
         Get list of available template variables.
         """
         serializer = TemplateVariablesSerializer(TEMPLATE_VARIABLES, many=True)
+        return Response(serializer.data)
+
+    @extend_schema(
+        summary="Get templates for specific context",
+        description=(
+            "Get templates filtered by context (service_type + phase + channel + target). "
+            "If subtype_id is provided, returns templates specific to that subtype AND generic templates."
+        ),
+        parameters=[
+            OpenApiParameter(
+                "service_type_id",
+                str,
+                required=True,
+                description="Service type ID (required)"
+            ),
+            OpenApiParameter(
+                "phase_id",
+                str,
+                required=True,
+                description="Phase ID (required)"
+            ),
+            OpenApiParameter(
+                "channel",
+                str,
+                required=True,
+                description="Notification channel: email, push, whatsapp (required)"
+            ),
+            OpenApiParameter(
+                "target",
+                str,
+                required=True,
+                description="Target audience: clients or staff (required)"
+            ),
+            OpenApiParameter(
+                "subtype_id",
+                str,
+                required=False,
+                description="Subtype ID (optional, for services with subtypes)"
+            ),
+        ],
+        responses={200: NotificationTemplateSerializer(many=True)},
+        tags=["Templates"],
+    )
+    @action(detail=False, methods=["get"])
+    def for_context(self, request):
+        """
+        Get templates filtered by context.
+        Returns templates that match service_type + phase + channel + target.
+        If subtype_id provided, includes subtype-specific AND generic templates.
+        """
+        service_type_id = request.query_params.get("service_type_id")
+        phase_id = request.query_params.get("phase_id")
+        channel = request.query_params.get("channel")
+        target = request.query_params.get("target")
+        subtype_id = request.query_params.get("subtype_id")
+
+        # Validate required parameters
+        if not all([service_type_id, phase_id, channel, target]):
+            return Response(
+                {"error": "service_type_id, phase_id, channel, and target are required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        queryset = NotificationTemplate.objects.select_related(
+            "service_type", "phase", "subtype"
+        ).filter(
+            service_type_id=service_type_id,
+            phase_id=phase_id,
+            channel=channel,
+            target=target,
+            is_active=True
+        )
+
+        if subtype_id:
+            # Include templates specific to the subtype OR generic (no subtype)
+            queryset = queryset.filter(
+                models.Q(subtype_id=subtype_id) |
+                models.Q(subtype__isnull=True)
+            )
+        else:
+            # Only include templates without subtype
+            queryset = queryset.filter(subtype__isnull=True)
+
+        # Order by subtype (specific first, then generic)
+        queryset = queryset.order_by("-subtype_id", "-is_default", "name")
+
+        serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
