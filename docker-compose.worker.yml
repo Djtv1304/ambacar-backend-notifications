@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # Iniciar el worker de Celery con las colas específicas
+    command: celery -A config worker -l info -Q notifications,maintenance
+    # Política de reinicio por si el worker falla
+    restart: always
+    # No necesitamos 'env_file' porque Coolify inyectará las variables desde la UI
+    # No necesitamos 'depends_on' porque Redis está fuera de este contenedor (en la red de Coolify)
