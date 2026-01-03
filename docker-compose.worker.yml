@@ -1,5 +1,7 @@
 version: '3.8'
 
+# Archivo Docker Compose para definir un servicio de worker de Celery
+
 services:
   worker:
     build:
