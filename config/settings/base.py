@@ -43,6 +43,7 @@ LOCAL_APPS = [
     "apps.core",
     "apps.notifications",
     "apps.analytics",
+    "apps.synchronization",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -210,3 +211,11 @@ NOTIFICATION_SETTINGS = {
     "MAX_RETRIES": 3,
     "RETRY_BACKOFF_BASE": 60,  # Base seconds for exponential backoff
 }
+
+# =============================================================================
+# Internal API Security (Service-to-Service Communication)
+# =============================================================================
+INTERNAL_API_SECRET_KEY = os.environ.get(
+    "INTERNAL_API_SECRET_KEY",
+    "CHANGE_THIS_IN_PRODUCTION"  # Only for development
+)

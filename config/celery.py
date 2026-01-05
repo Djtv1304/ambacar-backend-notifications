@@ -44,6 +44,7 @@ app.conf.beat_schedule = {
 app.conf.task_routes = {
     "apps.notifications.tasks.*": {"queue": "notifications"},
     "apps.analytics.tasks.*": {"queue": "maintenance"},
+    "apps.synchronization.tasks.*": {"queue": "sync"},
 }
 
 

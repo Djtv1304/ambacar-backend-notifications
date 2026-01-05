@@ -56,6 +56,18 @@ class Vehicle(BaseModel):
         help_text="Vehicle photo URL"
     )
 
+    # Sync tracking fields (Table Projection pattern)
+    last_synced_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Last time this vehicle was synced from Core service"
+    )
+    sync_version = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Version number from Core service for optimistic locking"
+    )
+
     class Meta:
         db_table = "vehicles"
         indexes = [

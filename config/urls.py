@@ -13,11 +13,14 @@ urlpatterns = [
     # Admin
     path("admin/", admin.site.urls),
 
-    # API v1
+    # Public API v1
     path("api/v1/", include([
         path("notifications/", include("apps.notifications.urls")),
         path("analytics/", include("apps.analytics.urls")),
     ])),
+
+    # Internal API v1 (service-to-service communication)
+    path("api/internal/v1/", include("apps.synchronization.urls")),
 
     # OpenAPI Schema
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),

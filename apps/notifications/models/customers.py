@@ -56,6 +56,18 @@ class CustomerContactInfo(BaseModel):
         help_text="Profile image URL"
     )
 
+    # Sync tracking fields (Table Projection pattern)
+    last_synced_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Last time this customer was synced from Core service"
+    )
+    sync_version = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Version number from Core service for optimistic locking"
+    )
+
     class Meta:
         db_table = "customer_contact_info"
         verbose_name = "Customer Contact Info"

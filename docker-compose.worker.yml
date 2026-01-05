@@ -8,7 +8,7 @@ services:
       context: .
       dockerfile: Dockerfile
     # Iniciar el worker de Celery con las colas específicas
-    command: celery -A config worker -l info -Q notifications,maintenance
+    command: celery -A config worker -l info -Q notifications,sync,maintenance
     # Política de reinicio por si el worker falla
     restart: always
     # No necesitamos 'env_file' porque Coolify inyectará las variables desde la UI
