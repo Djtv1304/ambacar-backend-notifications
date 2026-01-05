@@ -143,6 +143,7 @@ SPECTACULAR_SETTINGS = {
         {"name": "Customers", "description": "Customer preferences and contact info"},
         {"name": "Push", "description": "Push notification subscriptions"},
         {"name": "Analytics", "description": "Notification analytics and metrics"},
+        {"name": "Internal API", "description": "Service-to-service communication endpoints (require API key authentication)"},
     ],
 }
 
