@@ -7,8 +7,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    # Iniciar el worker de Celery con las colas específicas
-    command: celery -A config worker -l info -Q notifications,sync,maintenance
+    # Iniciar el worker de Celery con las colas específicas e indicando el uso de 'solo' pool para ahorrar recursos
+    command: 'celery -A config worker -l info -Q notifications,sync,maintenance --pool=solo'
     # Política de reinicio por si el worker falla
     restart: always
     # No necesitamos 'env_file' porque Coolify inyectará las variables desde la UI
