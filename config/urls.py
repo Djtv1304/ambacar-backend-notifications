@@ -17,6 +17,7 @@ urlpatterns = [
     path("api/v1/", include([
         path("notifications/", include("apps.notifications.urls")),
         path("analytics/", include("apps.analytics.urls")),
+        path("health/", include("apps.core.urls")),
     ])),
 
     # Internal API v1 (service-to-service communication)
