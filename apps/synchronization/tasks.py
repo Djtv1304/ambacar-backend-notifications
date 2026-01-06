@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
     bind=True,
     max_retries=3,
     default_retry_delay=60,
+    queue='sync',
 )
 def sync_customer_task(self, customer_data: dict):
     """
@@ -96,6 +97,7 @@ def sync_customer_task(self, customer_data: dict):
     bind=True,
     max_retries=3,
     default_retry_delay=60,
+    queue='sync',
 )
 def sync_vehicle_task(self, vehicle_data: dict):
     """

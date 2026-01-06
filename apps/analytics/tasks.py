@@ -10,7 +10,7 @@ from django.utils import timezone
 logger = logging.getLogger(__name__)
 
 
-@shared_task
+@shared_task(queue='maintenance')
 def cleanup_old_logs(days_to_keep: int = 90):
     """
     Clean up old notification logs.
@@ -32,7 +32,7 @@ def cleanup_old_logs(days_to_keep: int = 90):
     return {"deleted": deleted_count}
 
 
-@shared_task
+@shared_task(queue='maintenance')
 def generate_daily_report():
     """
     Generate daily analytics report.

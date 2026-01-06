@@ -38,6 +38,7 @@ def get_adapters():
     autoretry_for=(Exception,),
     retry_backoff=True,
     retry_backoff_max=600,
+    queue='notifications',
 )
 def send_notification_task(self, log_id: str):
     """
@@ -139,7 +140,7 @@ def send_notification_task(self, log_id: str):
             raise self.retry(countdown=retry_delay)
 
 
-@shared_task
+@shared_task(queue='maintenance')
 def check_maintenance_reminders():
     """
     Periodic task to check and send maintenance reminders.
@@ -252,7 +253,7 @@ def _process_reminder(reminder):
         )
 
 
-@shared_task
+@shared_task(queue='notifications')
 def retry_failed_notifications():
     """
     Periodic task to retry failed notifications that are due for retry.
