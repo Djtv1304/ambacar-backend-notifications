@@ -387,7 +387,30 @@ curl http://localhost:8000/api/v1/notifications/catalog/
 - `orchestration_engine.py` debe buscar por `ServiceType.objects.filter(slug=...)`
 - Migración `0002_add_slug_to_service_models.py` debe estar aplicada
 
-### 6. Alto consumo de comandos Redis (Upstash)
+### 6. Variables de template no se renderizan (aparecen literalmente como {{Variable}})
+
+**Síntoma:** Las notificaciones muestran `{{Vehículo}}` o `{{Nombre}}` literalmente en lugar del valor real.
+
+**Causa:** Variable con caracteres Unicode (acentos) que el regex no puede capturar.
+
+**Solución aplicada (Enero 2026):**
+- Actualizado regex en `template_service.py` para soportar Unicode
+- Ahora funciona con: `{{Vehículo}}`, `{{Año}}`, `{{Técnico}}`, etc.
+
+**Verificar:**
+```bash
+# Las variables en el contexto deben coincidir (case-insensitive)
+# ✅ CORRECTO: context = {"vehiculo": "Toyota"} → renderiza {{Vehículo}}
+# ✅ CORRECTO: context = {"nombre": "Carlos"} → renderiza {{Nombre}}
+# ❌ INCORRECTO: context = {"auto": "Toyota"} → NO renderiza {{Vehículo}}
+```
+
+**Depuración:**
+1. Verificar que el contexto incluya la variable (sin acento, lowercase)
+2. Logs del worker: buscar "Rendering template" para ver contexto enviado
+3. Probar template desde admin: Ver preview de template con datos de ejemplo
+
+### 7. Alto consumo de comandos Redis (Upstash)
 
 **Síntoma:** 80K+ comandos en pocas horas, principalmente PING/PUBLISH.
 
@@ -521,6 +544,30 @@ apps/
   - Impacto: BRPOP -95%, PUBLISH -41%, total ~130K → 61K comandos/día
   - **Fix importante:** Corregido `socket_keepalive_options` para usar constantes de socket correctas (`socket.TCP_KEEPIDLE` en lugar de números 1,2,3) evitando "Error 22: Invalid argument"
 - ✅ Documentación mejorada para `update_preferences()` y `complete()`
+- ✅ **Fix crítico de renderizado de templates**: Soporte para caracteres Unicode en variables
+  - Problema: Variables con acentos como `{{Vehículo}}` no se renderizaban (aparecían literalmente en WhatsApp/Email)
+  - Causa: Regex `\{\{(\w+)\}\}` solo capturaba ASCII [a-zA-Z0-9_], no caracteres con acento
+  - Solución: Actualizado regex a `\{\{([^\{\}\s]+)\}\}` para soportar cualquier caracter Unicode excepto llaves y espacios
+  - Impacto: Templates ahora funcionan correctamente con variables como {{Vehículo}}, {{Año}}, {{Técnico}}, etc.
+  - Archivo modificado: `apps/notifications/services/template_service.py`
+- ✅ **Normalización Unicode accent-insensitive en template matching**:
+  - Problema: `{{Vehículo}}` (con acento) no matcheaba con context key `"Vehiculo"` (sin acento)
+  - Causa: Lowercase comparison `"vehículo"` != `"vehiculo"` (acentos no se normalizaban)
+  - Solución: Agregado método `_normalize()` usando `unicodedata.normalize('NFD')` para remover acentos antes de comparar
+  - Ahora funciona: Template `{{Vehículo}}` + Context `{"Vehiculo": "..."}` → ✅ Match correcto
+  - Archivos modificados: `template_service.py`, `orchestration_engine.py`
+- ✅ **Auto-enriquecimiento conservador de contexto**:
+  - Implementado enriquecimiento SOLO de `Nombre` del cliente si falta en el context
+  - NO se auto-enriquecen campos ambiguos: `vehiculo`, `taller`, `placa` (cliente puede tener múltiples vehículos/talleres)
+  - Context del request SIEMPRE tiene precedencia sobre auto-enriquecimiento
+  - Método: `OrchestrationEngine._enrich_context_minimal()`
+- ✅ **Validación estricta de campos vitales en dispatch**:
+  - Endpoint retorna `400 Bad Request` si faltan campos requeridos en context
+  - Campos requeridos para "clients": nombre, vehiculo, placa, taller, fecha, hora
+  - Campos requeridos para "staff": nombre, vehiculo, placa, taller
+  - Campos opcionales (no validados): orden, tecnico, fase (dependientes del contexto)
+  - Impacto: Previene notificaciones con placeholders `{{Variable}}` vacíos, fuerza al caller a proporcionar data completa
+  - Archivo modificado: `apps/notifications/views/events.py`
 
 ### Diciembre 2025
 - ✅ Implementado patrón Table Projection (sincronización async)

@@ -14,6 +14,34 @@ from apps.notifications.services.orchestration_engine import (
     orchestration_engine,
     EventPayload,
 )
+from apps.notifications.services.template_service import template_service
+
+
+# Required context fields for validation (normalized keys)
+# User requirement: Validate all dynamic variables used in notifications
+REQUIRED_CONTEXT_FIELDS = {
+    "clients": [
+        "nombre",    # Customer name
+        "vehiculo",  # Vehicle brand/model
+        "placa",     # Vehicle plate
+        "taller",    # Workshop name
+        "fecha",     # Scheduled date
+        "hora",      # Scheduled time
+    ],
+    "staff": [
+        "nombre",    # Customer/staff name
+        "taller",    # Workshop name
+        "vehiculo",  # Vehicle in service
+        "placa",     # Vehicle plate
+    ],
+}
+
+# Optional fields (context-dependent, not validated)
+OPTIONAL_CONTEXT_FIELDS = [
+    "orden",     # Work order number (only if OT exists)
+    "tecnico",   # Assigned technician (only in assignment phases)
+    "fase",      # Current phase (only in progress notifications)
+]
 
 
 class EventDispatchView(APIView):
@@ -94,6 +122,34 @@ based on orchestration configuration.
         serializer.is_valid(raise_exception=True)
 
         data = serializer.validated_data
+
+        # Validate required context fields
+        target = data.get("target", "clients")
+        required_fields = REQUIRED_CONTEXT_FIELDS.get(target, [])
+
+        # Normalize context keys for comparison (accent-insensitive)
+        normalized_context_keys = {
+            template_service._normalize(k)
+            for k in data.get("context", {}).keys()
+        }
+
+        missing_fields = [
+            field for field in required_fields
+            if field not in normalized_context_keys
+        ]
+
+        if missing_fields:
+            return Response(
+                {
+                    "success": False,
+                    "error": f"Missing required context fields: {', '.join(missing_fields)}",
+                    "missing_fields": missing_fields,
+                    "hint": "Provide these fields in the 'context' object",
+                    "required_fields": required_fields,
+                    "correlation_id": str(data["correlation_id"]) if data.get("correlation_id") else None,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         # Build event payload
         payload = EventPayload(

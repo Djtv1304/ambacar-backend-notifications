@@ -2,6 +2,7 @@
 Template rendering service.
 """
 import re
+import unicodedata
 from typing import Any, Dict, List
 
 from apps.core.ports import TemplateRenderer
@@ -28,10 +29,31 @@ class TemplateService(TemplateRenderer):
     # Matches any character except braces and whitespace
     VARIABLE_PATTERN = re.compile(r"\{\{([^\{\}\s]+)\}\}")
 
+    @staticmethod
+    def _normalize(text: str) -> str:
+        """
+        Normalize text for case-insensitive and accent-insensitive matching.
+
+        Converts to NFD form, removes combining characters (accents),
+        and lowercases the result.
+
+        Examples:
+            "Vehículo" → "vehiculo"
+            "Nombre" → "nombre"
+            "PLACA" → "placa"
+            "Año" → "ano"
+        """
+        nfd = unicodedata.normalize('NFD', text)
+        without_accents = ''.join(
+            char for char in nfd
+            if unicodedata.category(char) != 'Mn'
+        )
+        return without_accents.lower()
+
     def render(self, template_body: str, context: Dict[str, Any]) -> str:
         """
         Replace {{variable}} placeholders with context values.
-        Case-insensitive matching for variable names.
+        Case-insensitive and accent-insensitive matching.
 
         Args:
             template_body: Template string with {{variable}} placeholders
@@ -40,13 +62,13 @@ class TemplateService(TemplateRenderer):
         Returns:
             Rendered string with placeholders replaced
         """
-        # Create lowercase key mapping for case-insensitive lookup
-        context_lower = {k.lower(): v for k, v in context.items()}
+        # Create normalized key mapping for case-insensitive and accent-insensitive lookup
+        context_normalized = {self._normalize(k): v for k, v in context.items()}
 
         def replace_variable(match):
-            var_name = match.group(1).lower()
-            if var_name in context_lower:
-                value = context_lower[var_name]
+            var_name_normalized = self._normalize(match.group(1))
+            if var_name_normalized in context_normalized:
+                value = context_normalized[var_name_normalized]
                 return str(value) if value is not None else ""
             # Keep original if not found
             return match.group(0)

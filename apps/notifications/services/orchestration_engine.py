@@ -4,6 +4,7 @@ Core business logic for processing events and dispatching notifications.
 """
 import logging
 import uuid
+import unicodedata
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -67,6 +68,19 @@ class OrchestrationEngine:
     6. Queue notifications for async sending
     """
 
+    @staticmethod
+    def _normalize(text: str) -> str:
+        """
+        Normalize text for case-insensitive and accent-insensitive matching.
+        Same as TemplateService._normalize().
+        """
+        nfd = unicodedata.normalize('NFD', text)
+        without_accents = ''.join(
+            char for char in nfd
+            if unicodedata.category(char) != 'Mn'
+        )
+        return without_accents.lower()
+
     def process_event(self, payload: EventPayload) -> OrchestrationResult:
         """
         Main entry point for processing notification events.
@@ -128,6 +142,9 @@ class OrchestrationEngine:
             # Step 4: Get customer preferences
             preferences = self._get_customer_preferences(payload.customer_id)
 
+            # Step 4.5: Enrich context minimally (only nombre if missing)
+            enriched_context = self._enrich_context_minimal(payload, customer)
+
             # Step 5: Resolve channels and recipients
             channels_to_notify = self._resolve_channels(
                 enabled_channels,
@@ -153,14 +170,14 @@ class OrchestrationEngine:
                     # Render template
                     rendered_body = template_service.render(
                         channel_config.template.body,
-                        payload.context,
+                        enriched_context,
                     )
 
                     rendered_subject = None
                     if channel_config.template.subject:
                         rendered_subject = template_service.render(
                             channel_config.template.subject,
-                            payload.context,
+                            enriched_context,
                         )
 
                     # Queue notification
@@ -173,7 +190,7 @@ class OrchestrationEngine:
                         customer_id=payload.customer_id,
                         template_id=str(channel_config.template.id),
                         template_name=channel_config.template.name,
-                        context=payload.context,
+                        context=enriched_context,
                         correlation_id=correlation_id,
                         priority_order=priority_order,
                     )
@@ -214,6 +231,31 @@ class OrchestrationEngine:
                 errors=[error_message],
                 correlation_id=correlation_id,
             )
+
+    def _enrich_context_minimal(
+        self,
+        payload: EventPayload,
+        customer: CustomerContactInfo,
+    ) -> Dict[str, Any]:
+        """
+        Minimal context enrichment: ONLY add customer name if missing.
+
+        User requirement: Only enrich when unambiguous.
+        Do NOT enrich vehiculo, taller, or placa (ambiguous - customer may have multiple vehicles/talleres).
+
+        Context from request ALWAYS takes precedence.
+        """
+        enriched = {}
+
+        # Normalize keys for comparison
+        normalized_keys = {self._normalize(k) for k in payload.context.keys()}
+
+        # Only enrich 'nombre' if not present
+        if "nombre" not in normalized_keys:
+            enriched["Nombre"] = customer.full_name
+
+        # Merge: request context overrides enriched
+        return {**enriched, **payload.context}
 
     def _find_orchestration_config(
         self,
