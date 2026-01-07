@@ -169,6 +169,22 @@ CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = 30 * 60  # 30 minutes
 
+# Cancel long-running tasks on connection loss to prevent duplicate executions
+# This will be the default behavior in Celery 6.0
+CELERY_WORKER_CANCEL_LONG_RUNNING_TASKS_ON_CONNECTION_LOSS = True
+
+# Optimization: Reduce Redis command usage (critical for Upstash free tier)
+# Disable task events (we use django-db for results already)
+CELERY_TASK_SEND_SENT_EVENT = False
+CELERY_WORKER_SEND_TASK_EVENTS = False
+
+# Increase heartbeat interval to reduce PING commands (default is 2s, we use 4 minutes)
+# NOTE: Upstash has 310s idle timeout, so we use 240s to stay safely below that
+CELERY_BROKER_HEARTBEAT = 240  # 4 minutes in seconds
+
+# Disable prefetch to reduce memory and Redis commands on idle workers
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+
 # SSL Configuration for Redis (required for Upstash and other TLS Redis providers)
 # Only apply SSL settings when using rediss:// scheme
 _redis_url = os.environ.get("REDIS_URL", "")

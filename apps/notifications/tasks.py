@@ -258,16 +258,30 @@ def retry_failed_notifications():
     """
     Periodic task to retry failed notifications that are due for retry.
     Runs every 15 minutes via Celery Beat.
+
+    Optimized: Early return if no notifications to retry (reduces Redis usage).
     """
     from apps.notifications.models import NotificationLog
 
     now = timezone.now()
 
+    # Early return: Check count first to avoid unnecessary work
+    pending_count = NotificationLog.objects.filter(
+        status=NotificationStatus.FAILED,
+        next_retry_at__lte=now,
+        retry_count__lt=models.F("max_retries"),
+    ).count()
+
+    if pending_count == 0:
+        # Don't log if there's nothing to do (reduces noise)
+        return {"requeued": 0}
+
+    # Only fetch and process if there are pending retries
     pending_retries = NotificationLog.objects.filter(
         status=NotificationStatus.FAILED,
         next_retry_at__lte=now,
         retry_count__lt=models.F("max_retries"),
-    )
+    )[:100]  # Limit to 100 per batch to avoid overload
 
     count = 0
     for log in pending_retries:

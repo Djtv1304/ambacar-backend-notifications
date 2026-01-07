@@ -26,10 +26,10 @@ app.conf.beat_schedule = {
         "schedule": crontab(hour=8, minute=0),
         "options": {"queue": "maintenance"},
     },
-    # Retry failed notifications every 15 minutes
+    # Retry failed notifications every hour (optimized to reduce Redis usage)
     "retry-failed-notifications": {
         "task": "apps.notifications.tasks.retry_failed_notifications",
-        "schedule": crontab(minute="*/15"),
+        "schedule": crontab(minute=0),  # Every hour at minute 0
         "options": {"queue": "notifications"},
     },
     # Clean old logs weekly (Sundays at midnight)

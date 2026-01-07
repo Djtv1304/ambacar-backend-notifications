@@ -387,6 +387,53 @@ curl http://localhost:8000/api/v1/notifications/catalog/
 - `orchestration_engine.py` debe buscar por `ServiceType.objects.filter(slug=...)`
 - Migración `0002_add_slug_to_service_models.py` debe estar aplicada
 
+### 6. Alto consumo de comandos Redis (Upstash)
+
+**Síntoma:** 80K+ comandos en pocas horas, principalmente PING/PUBLISH.
+
+**Causas:**
+1. **Múltiples instancias de Beat** → Tareas programadas ejecutándose varias veces
+2. **Heartbeat muy frecuente** → Workers envían PING cada 2s (default)
+3. **Tareas periódicas innecesarias** → `retry_failed_notifications` se ejecuta aunque no haya nada
+
+**Solución (ya implementada en Enero 2026):**
+
+✅ **Configuración optimizada en `config/settings/base.py`:**
+```python
+CELERY_BROKER_HEARTBEAT = 240  # 4 minutos (era 2s, máximo seguro para Upstash)
+CELERY_TASK_SEND_SENT_EVENT = False  # Deshabilitar eventos
+CELERY_WORKER_SEND_TASK_EVENTS = False
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+```
+
+✅ **Tarea optimizada con early return:**
+- `retry_failed_notifications` ahora revisa si hay notificaciones pendientes antes de procesar
+- Frecuencia reducida de cada 15 min → cada 1 hora
+
+✅ **Deployment correcto en Coolify:**
+```
+IMPORTANTE: Solo debe haber 1 instancia de Beat corriendo
+
+✅ CORRECTO (3 instancias separadas):
+- ambacar-notifications-web (Django)
+- ambacar-notifications-worker (Celery worker)
+- ambacar-notifications-beat (Celery beat) ← SOLO UNA
+
+❌ INCORRECTO:
+- Tener Beat habilitado en múltiples instancias
+- Correr "docker-compose up" en múltiples servidores
+```
+
+**Resultado esperado:**
+- **Antes:** 88K comandos/12h (~7,333/hora)
+- **Después:** ~1.5K comandos/12h (~125/hora) → **Reducción de ~98%**
+
+**Desglose de comandos/hora optimizados:**
+- Heartbeat PING: 15/h (era 1,800/h con 2s interval)
+- Task events: 0/h (era ~500/h, ahora deshabilitados)
+- Retry task: 2/h (era ~96/h con 15min interval)
+- Overhead normal: ~108/h (queuing, results, connections)
+
 ---
 
 ## Estructura de Archivos Importante
@@ -450,6 +497,12 @@ apps/
 - ✅ Seed ahora crea **OrchestrationConfig** y **PhaseChannelConfig**
 - ✅ Mejorados HTTP status codes en dispatch (202/400/500)
 - ✅ Migrado a Upstash Redis (SSL) para producción en Coolify
+- ✅ **Optimización crítica de Redis** (reducción de 90%+ en comandos):
+  - Heartbeat aumentado de 2s → 4 minutos (máximo seguro para Upstash timeout 310s)
+  - Eventos de tareas deshabilitados (task events)
+  - `retry_failed_notifications` con early return y frecuencia 15min → 1h
+  - Documentación de deployment correcto (1 sola instancia de Beat)
+- ✅ Activado `CELERY_WORKER_CANCEL_LONG_RUNNING_TASKS_ON_CONNECTION_LOSS` para prevenir duplicados
 - ✅ Documentación mejorada para `update_preferences()` y `complete()`
 
 ### Diciembre 2025
