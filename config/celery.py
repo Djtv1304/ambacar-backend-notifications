@@ -24,7 +24,7 @@ app.conf.beat_schedule = {
     "check-maintenance-reminders-daily": {
         "task": "apps.notifications.tasks.check_maintenance_reminders",
         "schedule": crontab(hour=8, minute=0),
-        "options": {"queue": "notifications"},
+        "options": {"queue": "maintenance"},
     },
     # Retry failed notifications every 15 minutes
     "retry-failed-notifications": {

@@ -169,6 +169,18 @@ CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = 30 * 60  # 30 minutes
 
+# SSL Configuration for Redis (required for Upstash and other TLS Redis providers)
+# Only apply SSL settings when using rediss:// scheme
+_redis_url = os.environ.get("REDIS_URL", "")
+if _redis_url.startswith("rediss://"):
+    import ssl
+    CELERY_BROKER_USE_SSL = {
+        "ssl_cert_reqs": ssl.CERT_REQUIRED,
+    }
+    CELERY_REDIS_BACKEND_USE_SSL = {
+        "ssl_cert_reqs": ssl.CERT_REQUIRED,
+    }
+
 # =============================================================================
 # Email Configuration (SMTP)
 # =============================================================================
