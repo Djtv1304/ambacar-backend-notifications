@@ -4,7 +4,7 @@ Views for customer data and preferences.
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from drf_spectacular.utils import extend_schema, extend_schema_view
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiResponse
 
 from apps.notifications.models import (
     CustomerContactInfo,
@@ -84,9 +84,16 @@ class CustomerContactInfoViewSet(viewsets.ModelViewSet):
 
     @extend_schema(
         summary="Update customer preferences",
-        description="Update notification preferences for a customer.",
+        description="Update notification channel preferences (email, whatsapp, push) for a customer.",
         request=CustomerPreferencesUpdateSerializer,
-        responses={200: CustomerChannelPreferenceSerializer(many=True)},
+        responses={
+            200: OpenApiResponse(
+                response=CustomerChannelPreferenceSerializer(many=True),
+                description="Preferences updated successfully",
+            ),
+            400: OpenApiResponse(description="Invalid preference data"),
+            404: OpenApiResponse(description="Customer not found"),
+        },
         tags=["Customers"],
     )
     @action(detail=True, methods=["post"])
@@ -258,6 +265,14 @@ class MaintenanceReminderViewSet(viewsets.ModelViewSet):
 
     @extend_schema(
         summary="Mark reminder as completed",
+        description="Mark a maintenance reminder as completed. Updates the reminder status to 'completed'.",
+        responses={
+            200: OpenApiResponse(
+                response=MaintenanceReminderSerializer,
+                description="Reminder marked as completed successfully",
+            ),
+            404: OpenApiResponse(description="Reminder not found"),
+        },
         tags=["Customers"],
     )
     @action(detail=True, methods=["post"])

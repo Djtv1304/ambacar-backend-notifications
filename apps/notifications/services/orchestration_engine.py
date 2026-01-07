@@ -17,6 +17,8 @@ from apps.notifications.models import (
     PhaseChannelConfig,
     CustomerContactInfo,
     CustomerChannelPreference,
+    ServiceType,
+    ServicePhase,
 )
 from apps.notifications.services.template_service import template_service
 from apps.notifications.services.dispatch_service import dispatch_service
@@ -194,11 +196,22 @@ class OrchestrationEngine:
             )
 
         except Exception as e:
-            logger.exception(f"Orchestration error: {str(e)}")
+            # Improve error messages for common issues
+            error_message = str(e)
+
+            # Handle UUID validation errors for service_type_id
+            if "no es un uuid válido" in error_message.lower() or "is not a valid uuid" in error_message.lower():
+                error_message = (
+                    f"Service type '{payload.service_type_id}' not found. "
+                    f"Please ensure service types are seeded using 'python manage.py seed_initial_data' "
+                    f"and use the correct UUID from the database."
+                )
+
+            logger.exception(f"Orchestration error: {error_message}")
             return OrchestrationResult(
                 success=False,
                 notifications_queued=0,
-                errors=[f"Orchestration error: {str(e)}"],
+                errors=[error_message],
                 correlation_id=correlation_id,
             )
 
@@ -208,10 +221,17 @@ class OrchestrationEngine:
     ) -> Optional[OrchestrationConfig]:
         """
         Find the matching orchestration configuration.
-        Tries taller-specific first, then falls back to global.
+        Looks up ServiceType by slug, then tries taller-specific config first,
+        and falls back to global.
         """
+        # First, find the ServiceType by slug
+        service_type = ServiceType.objects.filter(slug=payload.service_type_id).first()
+        if not service_type:
+            logger.warning(f"ServiceType not found with slug: {payload.service_type_id}")
+            return None
+
         filters = {
-            "service_type_id": payload.service_type_id,
+            "service_type": service_type,
             "target": payload.target,
             "is_active": True,
         }
@@ -238,10 +258,17 @@ class OrchestrationEngine:
     ) -> List[PhaseChannelConfig]:
         """
         Get channel configs for a specific phase.
+        Looks up ServicePhase by slug.
         """
+        # Find the ServicePhase by slug
+        phase = ServicePhase.objects.filter(slug=phase_id).first()
+        if not phase:
+            logger.warning(f"ServicePhase not found with slug: {phase_id}")
+            return []
+
         return list(
             config.phase_configs.filter(
-                phase_id=phase_id,
+                phase=phase,
             ).select_related("template", "phase")
         )
 

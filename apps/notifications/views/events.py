@@ -73,9 +73,19 @@ based on orchestration configuration.
         responses={
             202: OpenApiResponse(
                 response=EventDispatchResponseSerializer,
-                description="Event accepted and queued for processing",
+                description="Event accepted and notifications queued successfully",
             ),
-            400: OpenApiResponse(description="Invalid request data"),
+            400: OpenApiResponse(
+                response=EventDispatchResponseSerializer,
+                description=(
+                    "Bad request - Invalid data (e.g., service type not found, "
+                    "customer not found, missing required data)"
+                ),
+            ),
+            500: OpenApiResponse(
+                response=EventDispatchResponseSerializer,
+                description="Internal server error during event processing",
+            ),
         },
         tags=["Events"],
     )
@@ -111,7 +121,29 @@ based on orchestration configuration.
 
         response_serializer = EventDispatchResponseSerializer(response_data)
 
+        # Determine appropriate HTTP status code
+        if result.success:
+            # Successfully queued notifications
+            http_status = status.HTTP_202_ACCEPTED
+        else:
+            # Check if it's a validation error (service type not found, customer not found, etc.)
+            # These indicate client-side issues with the request
+            if any(
+                err_msg in " ".join(result.errors).lower()
+                for err_msg in [
+                    "not found",
+                    "no orchestration config",
+                    "customer not found",
+                    "no es un uuid válido",
+                    "is not a valid uuid",
+                ]
+            ):
+                http_status = status.HTTP_400_BAD_REQUEST
+            else:
+                # Other errors are considered server-side issues
+                http_status = status.HTTP_500_INTERNAL_SERVER_ERROR
+
         return Response(
             response_serializer.data,
-            status=status.HTTP_202_ACCEPTED,
+            status=http_status,
         )

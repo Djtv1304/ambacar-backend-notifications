@@ -8,6 +8,8 @@ from apps.notifications.models import (
     ServicePhase,
     ServiceType,
     NotificationTemplate,
+    OrchestrationConfig,
+    PhaseChannelConfig,
 )
 
 
@@ -28,17 +30,18 @@ class Command(BaseCommand):
             phases = self._seed_phases(force)
             service_types, subtypes = self._seed_service_types(force)
             self._seed_templates(force, phases, service_types, subtypes)
+            self._seed_orchestration_configs(force, service_types, phases)
 
         self.stdout.write(self.style.SUCCESS("Initial data seeded successfully!"))
 
     def _seed_phases(self, force: bool) -> dict:
-        """Seed service phases and return a dict mapping phase keys to instances."""
+        """Seed service phases and return a dict mapping phase slugs to instances."""
         phases_data = [
-            {"id": "phase-schedule", "name": "Agendar Cita", "icon": "Calendar", "order": 1},
-            {"id": "phase-reception", "name": "Recepción", "icon": "ClipboardCheck", "order": 2},
-            {"id": "phase-repair", "name": "Reparación", "icon": "Wrench", "order": 3},
-            {"id": "phase-quality", "name": "Control Calidad", "icon": "ShieldCheck", "order": 4},
-            {"id": "phase-delivery", "name": "Entrega", "icon": "CarFront", "order": 5},
+            {"slug": "phase-schedule", "name": "Agendar Cita", "icon": "Calendar", "order": 1},
+            {"slug": "phase-reception", "name": "Recepción", "icon": "ClipboardCheck", "order": 2},
+            {"slug": "phase-repair", "name": "Reparación", "icon": "Wrench", "order": 3},
+            {"slug": "phase-quality", "name": "Control Calidad", "icon": "ShieldCheck", "order": 4},
+            {"slug": "phase-delivery", "name": "Entrega", "icon": "CarFront", "order": 5},
         ]
 
         if force:
@@ -47,43 +50,47 @@ class Command(BaseCommand):
 
         phases = {}
         for data in phases_data:
-            phase_id = data.pop("id")
+            slug = data["slug"]
             phase, created = ServicePhase.objects.update_or_create(
-                order=data["order"],
-                defaults=data,
+                slug=slug,
+                defaults={
+                    "name": data["name"],
+                    "icon": data["icon"],
+                    "order": data["order"],
+                },
             )
-            phases[phase_id] = phase
+            phases[slug] = phase
             status = "Created" if created else "Updated"
             self.stdout.write(f"  {status} phase: {phase.name}")
 
         return phases
 
     def _seed_service_types(self, force: bool) -> tuple:
-        """Seed service types and return dicts mapping type keys to instances."""
+        """Seed service types and return dicts mapping type slugs to instances."""
         if force:
             ServiceType.objects.all().delete()
             self.stdout.write("Deleted existing service types")
 
         # Main service types
         service_types_data = [
-            {"id": "avaluo-comercial", "name": "Avalúo Comercial", "icon": "FileSearch"},
-            {"id": "averia-revision", "name": "Avería/Revisión", "icon": "AlertTriangle"},
-            {"id": "colision-pintura", "name": "Colisión/Pintura", "icon": "Paintbrush"},
-            {"id": "mantenimiento-preventivo", "name": "Mantenimiento Preventivo", "icon": "Settings"},
-            {"id": "avaluo-mg", "name": "Avalúo MG", "icon": "FileCheck"},
+            {"slug": "avaluo-comercial", "name": "Avalúo Comercial", "icon": "FileSearch"},
+            {"slug": "averia-revision", "name": "Avería/Revisión", "icon": "AlertTriangle"},
+            {"slug": "colision-pintura", "name": "Colisión/Pintura", "icon": "Paintbrush"},
+            {"slug": "mantenimiento-preventivo", "name": "Mantenimiento Preventivo", "icon": "Settings"},
+            {"slug": "avaluo-mg", "name": "Avalúo MG", "icon": "FileCheck"},
         ]
 
         # Subtypes
         subtypes_data = {
             "averia-revision": [
-                {"id": "averia-frenos", "name": "Frenos", "icon": "Circle"},
-                {"id": "averia-diagnostico", "name": "Diagnóstico", "icon": "Search"},
-                {"id": "averia-alineacion", "name": "Alineación", "icon": "AlignCenter"},
+                {"slug": "averia-frenos", "name": "Frenos", "icon": "Circle"},
+                {"slug": "averia-diagnostico", "name": "Diagnóstico", "icon": "Search"},
+                {"slug": "averia-alineacion", "name": "Alineación", "icon": "AlignCenter"},
             ],
             "colision-pintura": [
-                {"id": "colision-siniestro", "name": "Siniestro", "icon": "AlertOctagon"},
-                {"id": "colision-golpe", "name": "Golpe", "icon": "Hammer"},
-                {"id": "colision-pintura", "name": "Pintura", "icon": "Paintbrush2"},
+                {"slug": "colision-siniestro", "name": "Siniestro", "icon": "AlertOctagon"},
+                {"slug": "colision-golpe", "name": "Golpe", "icon": "Hammer"},
+                {"slug": "colision-pintura-sub", "name": "Pintura", "icon": "Paintbrush2"},
             ],
         }
 
@@ -91,26 +98,32 @@ class Command(BaseCommand):
         subtypes = {}
 
         for type_data in service_types_data:
-            type_id = type_data.pop("id")
+            slug = type_data["slug"]
             service_type, created = ServiceType.objects.update_or_create(
-                name=type_data["name"],
-                parent=None,
-                defaults={"icon": type_data["icon"]},
+                slug=slug,
+                defaults={
+                    "name": type_data["name"],
+                    "icon": type_data["icon"],
+                    "parent": None,
+                },
             )
-            service_types[type_id] = service_type
+            service_types[slug] = service_type
             status = "Created" if created else "Updated"
             self.stdout.write(f"  {status} service type: {service_type.name}")
 
             # Create subtypes if any
-            if type_id in subtypes_data:
-                for subtype_data in subtypes_data[type_id]:
-                    subtype_id = subtype_data.pop("id")
+            if slug in subtypes_data:
+                for subtype_data in subtypes_data[slug]:
+                    subtype_slug = subtype_data["slug"]
                     subtype, created = ServiceType.objects.update_or_create(
-                        name=subtype_data["name"],
-                        parent=service_type,
-                        defaults={"icon": subtype_data["icon"]},
+                        slug=subtype_slug,
+                        defaults={
+                            "name": subtype_data["name"],
+                            "icon": subtype_data["icon"],
+                            "parent": service_type,
+                        },
                     )
-                    subtypes[subtype_id] = subtype
+                    subtypes[subtype_slug] = subtype
                     status = "Created" if created else "Updated"
                     self.stdout.write(f"    {status} subtype: {subtype.name}")
 
@@ -535,3 +548,104 @@ class Command(BaseCommand):
                 "phase_id": "phase-schedule",
             },
         ]
+
+    def _seed_orchestration_configs(
+        self,
+        force: bool,
+        service_types: dict,
+        phases: dict,
+    ):
+        """
+        Seed OrchestrationConfig and PhaseChannelConfig for each service type.
+        This creates the notification matrix linking service types -> phases -> channels -> templates.
+        """
+        if force:
+            PhaseChannelConfig.objects.all().delete()
+            OrchestrationConfig.objects.all().delete()
+            self.stdout.write("Deleted existing orchestration configs")
+
+        configs_created = 0
+        phase_configs_created = 0
+        channels = ["email", "whatsapp", "push"]
+
+        for type_slug, service_type in service_types.items():
+            # Create config for clients
+            config_clients, created = OrchestrationConfig.objects.update_or_create(
+                service_type=service_type,
+                target="clients",
+                taller_id=None,
+                defaults={
+                    "is_active": True,
+                    "description": f"Configuración de notificaciones para {service_type.name} - Clientes",
+                },
+            )
+            if created:
+                configs_created += 1
+
+            # Create PhaseChannelConfigs for clients
+            phase_configs_created += self._create_phase_channel_configs(
+                config_clients, phases, channels, "clients"
+            )
+
+            # Create config for staff
+            config_staff, created = OrchestrationConfig.objects.update_or_create(
+                service_type=service_type,
+                target="staff",
+                taller_id=None,
+                defaults={
+                    "is_active": True,
+                    "description": f"Configuración de notificaciones para {service_type.name} - Staff",
+                },
+            )
+            if created:
+                configs_created += 1
+
+            # Create PhaseChannelConfigs for staff
+            phase_configs_created += self._create_phase_channel_configs(
+                config_staff, phases, channels, "staff"
+            )
+
+        self.stdout.write(
+            f"  OrchestrationConfigs: {configs_created} created, "
+            f"PhaseChannelConfigs: {phase_configs_created} created"
+        )
+
+    def _create_phase_channel_configs(
+        self,
+        orchestration_config: OrchestrationConfig,
+        phases: dict,
+        channels: list,
+        target: str,
+    ) -> int:
+        """
+        Create PhaseChannelConfig entries linking phases to channels and templates.
+        Returns the count of created configs.
+        """
+        created_count = 0
+
+        for phase_slug, phase in phases.items():
+            for channel in channels:
+                # Find existing template for this combination
+                template = NotificationTemplate.objects.filter(
+                    service_type=orchestration_config.service_type,
+                    phase=phase,
+                    channel=channel,
+                    target=target,
+                    is_default=True,
+                    is_active=True,
+                ).first()
+
+                _, created = PhaseChannelConfig.objects.update_or_create(
+                    orchestration_config=orchestration_config,
+                    phase=phase,
+                    channel=channel,
+                    defaults={
+                        "enabled": template is not None,
+                        "template": template,
+                    },
+                )
+
+                if created:
+                    created_count += 1
+
+        return created_count

@@ -20,6 +20,7 @@ from apps.notifications.views.push_subscription import (
     PushSubscriptionView,
     PushSubscriptionStatusView,
 )
+from apps.notifications.views.catalog import CatalogView
 
 # Create router for ViewSets
 router = DefaultRouter()
@@ -34,6 +35,9 @@ router.register(r"reminders", MaintenanceReminderViewSet, basename="reminders")
 urlpatterns = [
     # Event dispatch endpoint
     path("events/dispatch/", EventDispatchView.as_view(), name="event-dispatch"),
+
+    # Catalog endpoint
+    path("catalog/", CatalogView.as_view(), name="catalog"),
 
     # Push subscription endpoints
     path("push/subscribe/", PushSubscriptionView.as_view(), name="push-subscribe"),

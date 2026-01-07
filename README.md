@@ -164,6 +164,12 @@ Celery Beat para tareas programadas (usa DatabaseScheduler)
 | GET | `/api/v1/notifications/templates/variables/` | Listar variables disponibles |
 | GET | `/api/v1/notifications/templates/for_context/` | Obtener plantilla para contexto específico |
 
+#### Catálogo
+
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| GET | `/api/v1/notifications/catalog/` | Obtener catálogo de slugs (service_types y phases) para usar en dispatch |
+
 #### Configuración de Orquestación
 
 | Método | Endpoint | Descripción |
@@ -222,6 +228,7 @@ Celery Beat para tareas programadas (usa DatabaseScheduler)
 |--------|----------|-------------|
 | POST | `/api/internal/v1/customers/sync/` | Webhook para sincronizar datos de clientes desde servicio Core |
 | POST | `/api/internal/v1/vehicles/sync/` | Webhook para sincronizar datos de vehículos desde servicio Core |
+| GET | `/api/internal/v1/tasks/{task_id}/status/` | Verificar estado de tarea asíncrona de sincronización |
 
 **Patrón**: Table Projection - sincronización asíncrona vía Celery (cola `sync`)
 
@@ -284,7 +291,7 @@ El flujo de servicio está dividido en 5 fases:
 
 ### Comando Seed
 
-Los datos iniciales (fases, tipos de servicio, plantillas) se cargan con:
+Los datos iniciales (fases, tipos de servicio, plantillas, orquestación) se cargan con:
 
 ```bash
 python manage.py seed_initial_data
@@ -294,10 +301,39 @@ python manage.py seed_initial_data --force
 ```
 
 Este comando crea:
-- 5 fases de servicio
-- 5 tipos de servicio principales
+- 5 fases de servicio (con slugs: `phase-schedule`, `phase-reception`, `phase-repair`, `phase-quality`, `phase-delivery`)
+- 5 tipos de servicio principales (con slugs: `mantenimiento-preventivo`, `averia-revision`, `colision-pintura`, `avaluo-comercial`, `avaluo-mg`)
 - 6 subtipos
 - 40+ plantillas de notificación (Email, WhatsApp, Push) para diferentes combinaciones de servicio/fase
+- 10 OrchestrationConfig (5 tipos x 2 targets: clients/staff)
+- 150 PhaseChannelConfig (matriz de canales por fase)
+
+## Ejemplo de Catalog
+
+El endpoint de catálogo retorna los slugs disponibles para usar en dispatch:
+
+```bash
+curl http://localhost:8000/api/v1/notifications/catalog/
+```
+
+**Respuesta:**
+```json
+{
+  "service_types": [
+    {"slug": "mantenimiento-preventivo", "name": "Mantenimiento Preventivo", "icon": "Settings"},
+    {"slug": "averia-revision", "name": "Avería/Revisión", "icon": "AlertTriangle", "subtypes": [
+      {"slug": "averia-frenos", "name": "Frenos", "icon": "Circle"},
+      {"slug": "averia-diagnostico", "name": "Diagnóstico", "icon": "Search"}
+    ]},
+    "..."
+  ],
+  "phases": [
+    {"slug": "phase-schedule", "name": "Agendar Cita", "icon": "Calendar", "order": 1},
+    {"slug": "phase-reception", "name": "Recepción", "icon": "ClipboardCheck", "order": 2},
+    "..."
+  ]
+}
+```
 
 ## Ejemplo de Dispatch
 
@@ -319,6 +355,9 @@ curl -X POST http://localhost:8000/api/v1/notifications/events/dispatch/ \
     }
   }'
 ```
+
+**Nota:** Los campos `service_type_id` y `phase_id` ahora usan **slugs** en lugar de UUIDs.
+Los slugs disponibles se pueden consultar en el endpoint `/api/v1/notifications/catalog/`.
 
 ## Variables de Plantilla
 

@@ -18,8 +18,8 @@ class ServicePhaseSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ServicePhase
-        fields = ["id", "name", "icon", "order", "is_active", "description"]
-        read_only_fields = ["id"]
+        fields = ["id", "slug", "name", "icon", "order", "is_active", "description"]
+        read_only_fields = ["id", "slug"]
 
 
 class ServiceTypeSerializer(serializers.ModelSerializer):
@@ -29,8 +29,8 @@ class ServiceTypeSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ServiceType
-        fields = ["id", "name", "icon", "parent", "is_active", "description"]
-        read_only_fields = ["id"]
+        fields = ["id", "slug", "name", "icon", "parent", "is_active", "description"]
+        read_only_fields = ["id", "slug"]
 
 
 class ServiceTypeWithSubtypesSerializer(serializers.ModelSerializer):
@@ -41,8 +41,8 @@ class ServiceTypeWithSubtypesSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ServiceType
-        fields = ["id", "name", "icon", "is_active", "description", "subtypes"]
-        read_only_fields = ["id"]
+        fields = ["id", "slug", "name", "icon", "is_active", "description", "subtypes"]
+        read_only_fields = ["id", "slug"]
 
     def get_subtypes(self, obj):
         """Get child subtypes."""

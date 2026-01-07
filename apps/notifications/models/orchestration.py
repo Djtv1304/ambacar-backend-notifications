@@ -19,6 +19,11 @@ class ServicePhase(BaseModel):
     4. Control Calidad (Quality Check)
     5. Entrega (Delivery)
     """
+    slug = models.SlugField(
+        max_length=50,
+        unique=True,
+        help_text="Unique identifier for API lookups (e.g., 'phase-schedule')"
+    )
     name = models.CharField(
         max_length=100,
         help_text="Phase display name"
@@ -62,6 +67,11 @@ class ServiceType(BaseModel):
     - Mantenimiento Preventivo
     - Avalúo MG
     """
+    slug = models.SlugField(
+        max_length=50,
+        unique=True,
+        help_text="Unique identifier for API lookups (e.g., 'mantenimiento-preventivo')"
+    )
     name = models.CharField(
         max_length=100,
         help_text="Service type display name"
