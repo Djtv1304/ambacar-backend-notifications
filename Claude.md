@@ -503,6 +503,17 @@ apps/
   - `retry_failed_notifications` con early return y frecuencia 15min → 1h
   - Documentación de deployment correcto (1 sola instancia de Beat)
 - ✅ Activado `CELERY_WORKER_CANCEL_LONG_RUNNING_TASKS_ON_CONNECTION_LOSS` para prevenir duplicados
+- ✅ **Bug crítico corregido**: Canales deshabilitados (`enabled=false`) ahora se respetan correctamente
+  - Problema: `_resolve_channels()` enviaba notificaciones a canales explícitamente deshabilitados por el cliente
+  - Solución: Query de canales deshabilitados antes de agregar canales por defecto
+  - Impacto: Cumplimiento de preferencias de usuario y compliance de privacidad
+- ✅ **Optimización avanzada de Redis/Celery** (segunda fase - reducción adicional ~53%):
+  - `CELERY_BROKER_TRANSPORT_OPTIONS`: Configurado con visibility_timeout 12h, socket keepalive, connection pooling
+  - `CELERY_TASK_TRACK_STARTED = False`: Deshabilitado tracking de inicio de tareas (reduce PUBLISH)
+  - Worker flags: `--without-gossip --without-mingle --without-heartbeat` (reduce comunicación inter-worker)
+  - `CELERY_RESULT_EXPIRES`: Resultados expiran en 24h automáticamente
+  - Campo `inferred_status` en analytics: Muestra "pending_or_in_progress" cuando sent_at es null
+  - Impacto: BRPOP -95%, PUBLISH -41%, total ~130K → 61K comandos/día
 - ✅ Documentación mejorada para `update_preferences()` y `complete()`
 
 ### Diciembre 2025

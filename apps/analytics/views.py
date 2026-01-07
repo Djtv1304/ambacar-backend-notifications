@@ -46,10 +46,13 @@ class RecentNotificationsSerializer(serializers.Serializer):
     channel = serializers.CharField()
     recipient_id = serializers.CharField()
     status = serializers.CharField()
-    sent_at = serializers.DateTimeField()
+    sent_at = serializers.DateTimeField(allow_null=True)
     created_at = serializers.DateTimeField()
     template_name = serializers.CharField()
     error_reason = serializers.CharField(allow_null=True)
+    inferred_status = serializers.CharField(
+        help_text="Inferred status: 'pending_or_in_progress' if sent_at is null, otherwise actual status"
+    )
 
 
 class AnalyticsSummaryView(APIView):
@@ -270,6 +273,8 @@ class RecentNotificationsView(APIView):
                 "created_at": log.created_at,
                 "template_name": log.template_name,
                 "error_reason": log.error_reason,
+                # Inferred status: pending/in-progress if not sent yet, otherwise use actual status
+                "inferred_status": log.status if log.sent_at else "pending_or_in_progress",
             }
             for log in logs
         ]

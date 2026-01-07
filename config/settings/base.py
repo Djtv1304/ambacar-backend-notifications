@@ -166,7 +166,7 @@ CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
-CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_TRACK_STARTED = False  # Reduces PUBLISH commands (no "task started" events)
 CELERY_TASK_TIME_LIMIT = 30 * 60  # 30 minutes
 
 # Cancel long-running tasks on connection loss to prevent duplicate executions
@@ -184,6 +184,31 @@ CELERY_BROKER_HEARTBEAT = 240  # 4 minutes in seconds
 
 # Disable prefetch to reduce memory and Redis commands on idle workers
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+
+# Optimization: Reduce BRPOP polling frequency (critical for Upstash free tier)
+CELERY_BROKER_TRANSPORT_OPTIONS = {
+    # Increase visibility timeout (max time a task can run before considered dead)
+    'visibility_timeout': 43200,  # 12 hours (safe for long-running tasks)
+
+    # Socket timeouts for stable connections
+    'socket_timeout': 30,
+    'socket_connect_timeout': 30,
+    'socket_keepalive': True,
+    'socket_keepalive_options': {
+        1: 30,  # TCP_KEEPIDLE: seconds before keepalive probes start
+        2: 10,  # TCP_KEEPINTVL: interval between keepalive probes
+        3: 3,   # TCP_KEEPCNT: failed probes before connection is dead
+    },
+
+    # Limit connection pool size to reduce overhead
+    'max_connections': 10,
+}
+
+# Limit broker connection pool (prevents connection leaks)
+CELERY_BROKER_POOL_LIMIT = 10
+
+# Expire task results after 24 hours (reduces database cleanup overhead)
+CELERY_RESULT_EXPIRES = 86400  # 24 hours in seconds
 
 # SSL Configuration for Redis (required for Upstash and other TLS Redis providers)
 # Only apply SSL settings when using rediss:// scheme
