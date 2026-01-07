@@ -508,12 +508,18 @@ apps/
   - Solución: Query de canales deshabilitados antes de agregar canales por defecto
   - Impacto: Cumplimiento de preferencias de usuario y compliance de privacidad
 - ✅ **Optimización avanzada de Redis/Celery** (segunda fase - reducción adicional ~53%):
-  - `CELERY_BROKER_TRANSPORT_OPTIONS`: Configurado con visibility_timeout 12h, socket keepalive, connection pooling
+  - `CELERY_BROKER_TRANSPORT_OPTIONS`: Configuración completa con:
+    - `visibility_timeout: 3600` (1h, default de Celery, apropiado para tareas <30min)
+    - `socket_timeout/socket_connect_timeout: 30s` (estabilidad con SSL)
+    - `socket_keepalive: True` con TCP_KEEPIDLE/KEEPINTVL/KEEPCNT usando constantes correctas de `socket` module
+    - `max_connections: 5` (conservador para límites de Upstash: 3 instancias × 5 = 15 conexiones concurrentes)
   - `CELERY_TASK_TRACK_STARTED = False`: Deshabilitado tracking de inicio de tareas (reduce PUBLISH)
   - Worker flags: `--without-gossip --without-mingle --without-heartbeat` (reduce comunicación inter-worker)
   - `CELERY_RESULT_EXPIRES`: Resultados expiran en 24h automáticamente
+  - `CELERY_BROKER_POOL_LIMIT: 5` (alineado con max_connections)
   - Campo `inferred_status` en analytics: Muestra "pending_or_in_progress" cuando sent_at es null
   - Impacto: BRPOP -95%, PUBLISH -41%, total ~130K → 61K comandos/día
+  - **Fix importante:** Corregido `socket_keepalive_options` para usar constantes de socket correctas (`socket.TCP_KEEPIDLE` en lugar de números 1,2,3) evitando "Error 22: Invalid argument"
 - ✅ Documentación mejorada para `update_preferences()` y `complete()`
 
 ### Diciembre 2025

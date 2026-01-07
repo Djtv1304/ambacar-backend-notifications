@@ -2,6 +2,7 @@
 Base settings for Ambacar Notification Service.
 """
 import os
+import socket
 from pathlib import Path
 
 import dj_database_url
@@ -186,26 +187,31 @@ CELERY_BROKER_HEARTBEAT = 240  # 4 minutes in seconds
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 
 # Optimization: Reduce BRPOP polling frequency (critical for Upstash free tier)
+# Properly configured for Upstash Redis over SSL
 CELERY_BROKER_TRANSPORT_OPTIONS = {
-    # Increase visibility timeout (max time a task can run before considered dead)
-    'visibility_timeout': 43200,  # 12 hours (safe for long-running tasks)
+    # Visibility timeout: max time a task can run before requeued
+    # Default is 3600s (1h), which is appropriate for our tasks (max 30min per CELERY_TASK_TIME_LIMIT)
+    'visibility_timeout': 3600,  # 1 hour (Celery default)
 
-    # Socket timeouts for stable connections
+    # Socket timeouts for stable SSL connections with Upstash
     'socket_timeout': 30,
     'socket_connect_timeout': 30,
+
+    # TCP keepalive to maintain persistent connections (helps with SSL/TLS)
     'socket_keepalive': True,
     'socket_keepalive_options': {
-        1: 30,  # TCP_KEEPIDLE: seconds before keepalive probes start
-        2: 10,  # TCP_KEEPINTVL: interval between keepalive probes
-        3: 3,   # TCP_KEEPCNT: failed probes before connection is dead
+        socket.TCP_KEEPIDLE: 30,   # Seconds before sending keepalive probes
+        socket.TCP_KEEPINTVL: 10,  # Interval between keepalive probes
+        socket.TCP_KEEPCNT: 3,     # Number of failed probes before giving up
     },
 
-    # Limit connection pool size to reduce overhead
-    'max_connections': 10,
+    # Connection pool limit per worker (conservative for Upstash concurrent connection limits)
+    # With 3 instances (Web, Worker, Beat) × 5 = ~15 concurrent connections (safe for free tier)
+    'max_connections': 5,
 }
 
 # Limit broker connection pool (prevents connection leaks)
-CELERY_BROKER_POOL_LIMIT = 10
+CELERY_BROKER_POOL_LIMIT = 5
 
 # Expire task results after 24 hours (reduces database cleanup overhead)
 CELERY_RESULT_EXPIRES = 86400  # 24 hours in seconds
