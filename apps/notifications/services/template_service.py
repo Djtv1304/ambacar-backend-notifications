@@ -13,6 +13,7 @@ class TemplateService(TemplateRenderer):
 
     Supports case-insensitive variable matching:
     - {{Nombre}}, {{nombre}}, {{NOMBRE}} all match 'nombre' in context
+    - Supports Unicode characters (accents, ñ, etc.): {{Vehículo}}, {{Año}}
 
     Example:
         service = TemplateService()
@@ -23,7 +24,9 @@ class TemplateService(TemplateRenderer):
         # Result: "Hola Carlos, tu vehículo ABC123 está listo."
     """
 
-    VARIABLE_PATTERN = re.compile(r"\{\{(\w+)\}\}")
+    # Updated regex to support Unicode characters (accents, ñ, etc.)
+    # Matches any character except braces and whitespace
+    VARIABLE_PATTERN = re.compile(r"\{\{([^\{\}\s]+)\}\}")
 
     def render(self, template_body: str, context: Dict[str, Any]) -> str:
         """
