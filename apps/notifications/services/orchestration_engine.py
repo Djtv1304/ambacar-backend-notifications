@@ -323,9 +323,18 @@ class OrchestrationEngine:
                     result.append((config, recipient))
                     used_channels.add(pref.channel)
 
-        # Then, add any enabled channels not in preferences
+        # Then, add any enabled channels not in preferences (excluding explicitly disabled ones)
+        # Query which channels customer explicitly disabled
+        disabled_channels = set(
+            CustomerChannelPreference.objects.filter(
+                customer__customer_id=customer.customer_id,
+                enabled=False
+            ).values_list('channel', flat=True)
+        )
+
         for channel, config in enabled_channel_map.items():
-            if channel not in used_channels:
+            # Skip if already used OR explicitly disabled by customer
+            if channel not in used_channels and channel not in disabled_channels:
                 recipient = customer.get_recipient_for_channel(channel)
                 if recipient:
                     result.append((config, recipient))
