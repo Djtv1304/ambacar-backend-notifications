@@ -17,31 +17,21 @@ from apps.notifications.services.orchestration_engine import (
 from apps.notifications.services.template_service import template_service
 
 
-# Required context fields for validation (normalized keys)
-# User requirement: Validate all dynamic variables used in notifications
-REQUIRED_CONTEXT_FIELDS = {
+# Minimum universal context fields (basic validation before dispatch)
+# These are the most common fields that almost all templates use
+# Full dynamic validation happens in orchestration_engine based on actual template
+MINIMUM_CONTEXT_FIELDS = {
     "clients": [
-        "nombre",    # Customer name
-        "vehiculo",  # Vehicle brand/model
-        "placa",     # Vehicle plate
-        "taller",    # Workshop name
-        "fecha",     # Scheduled date
-        "hora",      # Scheduled time
+        "nombre",    # Customer name (universal)
+        "vehiculo",  # Vehicle brand/model (universal)
+        "placa",     # Vehicle plate (universal)
     ],
     "staff": [
-        "nombre",    # Customer/staff name
-        "taller",    # Workshop name
-        "vehiculo",  # Vehicle in service
-        "placa",     # Vehicle plate
+        "nombre",    # Customer/staff name (universal)
+        "vehiculo",  # Vehicle in service (universal)
+        "placa",     # Vehicle plate (universal)
     ],
 }
-
-# Optional fields (context-dependent, not validated)
-OPTIONAL_CONTEXT_FIELDS = [
-    "orden",     # Work order number (only if OT exists)
-    "tecnico",   # Assigned technician (only in assignment phases)
-    "fase",      # Current phase (only in progress notifications)
-]
 
 
 class EventDispatchView(APIView):
@@ -123,9 +113,10 @@ based on orchestration configuration.
 
         data = serializer.validated_data
 
-        # Validate required context fields
+        # Basic validation: Check minimum universal fields
+        # Full dynamic validation (based on actual template variables) happens in orchestration_engine
         target = data.get("target", "clients")
-        required_fields = REQUIRED_CONTEXT_FIELDS.get(target, [])
+        minimum_fields = MINIMUM_CONTEXT_FIELDS.get(target, [])
 
         # Normalize context keys for comparison (accent-insensitive)
         normalized_context_keys = {
@@ -133,19 +124,19 @@ based on orchestration configuration.
             for k in data.get("context", {}).keys()
         }
 
-        missing_fields = [
-            field for field in required_fields
+        missing_minimum_fields = [
+            field for field in minimum_fields
             if field not in normalized_context_keys
         ]
 
-        if missing_fields:
+        if missing_minimum_fields:
             return Response(
                 {
                     "success": False,
-                    "error": f"Missing required context fields: {', '.join(missing_fields)}",
-                    "missing_fields": missing_fields,
-                    "hint": "Provide these fields in the 'context' object",
-                    "required_fields": required_fields,
+                    "error": f"Missing minimum required context fields: {', '.join(missing_minimum_fields)}",
+                    "missing_fields": missing_minimum_fields,
+                    "hint": "Provide at least these universal fields in the 'context' object",
+                    "minimum_fields": minimum_fields,
                     "correlation_id": str(data["correlation_id"]) if data.get("correlation_id") else None,
                 },
                 status=status.HTTP_400_BAD_REQUEST,

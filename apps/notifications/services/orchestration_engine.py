@@ -145,6 +145,26 @@ class OrchestrationEngine:
             # Step 4.5: Enrich context minimally (only nombre if missing)
             enriched_context = self._enrich_context_minimal(payload, customer)
 
+            # Step 4.6: Dynamic validation - extract variables from templates and validate context
+            validation_result = self._validate_template_variables(
+                enabled_channels,
+                enriched_context,
+            )
+            if not validation_result["valid"]:
+                logger.error(
+                    f"Template validation failed for customer {payload.customer_id}: "
+                    f"Missing variables: {validation_result['missing_variables']}"
+                )
+                return OrchestrationResult(
+                    success=False,
+                    notifications_queued=0,
+                    errors=[
+                        f"Missing required template variables: {', '.join(validation_result['missing_variables'])}. "
+                        f"Please provide these fields in the 'context' object."
+                    ],
+                    correlation_id=correlation_id,
+                )
+
             # Step 5: Resolve channels and recipients
             channels_to_notify = self._resolve_channels(
                 enabled_channels,
@@ -256,6 +276,53 @@ class OrchestrationEngine:
 
         # Merge: request context overrides enriched
         return {**enriched, **payload.context}
+
+    def _validate_template_variables(
+        self,
+        enabled_channels: List,
+        enriched_context: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """
+        Dynamic validation: Extract variables from templates and validate against context.
+
+        This ensures that ALL variables used in templates are present in the context.
+        Validation is accent-insensitive (Vehículo matches Vehiculo).
+
+        Args:
+            enabled_channels: List of PhaseChannelConfig with templates
+            enriched_context: Context dictionary (already enriched)
+
+        Returns:
+            Dict with 'valid' (bool) and 'missing_variables' (list)
+        """
+        all_required_variables = set()
+
+        # Extract variables from all enabled channel templates
+        for channel_config in enabled_channels:
+            template = channel_config.template
+            if not template:
+                continue
+
+            # Extract variables from template body
+            body_vars = template_service.get_variables(template.body)
+            all_required_variables.update(body_vars)
+
+            # Extract variables from subject (if exists)
+            if template.subject:
+                subject_vars = template_service.get_variables(template.subject)
+                all_required_variables.update(subject_vars)
+
+        # Normalize both required variables and context keys (accent-insensitive)
+        normalized_required = {self._normalize(var) for var in all_required_variables}
+        normalized_context_keys = {self._normalize(k) for k in enriched_context.keys()}
+
+        # Find missing variables
+        missing_variables = normalized_required - normalized_context_keys
+
+        return {
+            "valid": len(missing_variables) == 0,
+            "missing_variables": sorted(list(missing_variables)),
+        }
 
     def _find_orchestration_config(
         self,

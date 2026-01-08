@@ -114,12 +114,37 @@ class NotificationTemplateViewSet(viewsets.ModelViewSet):
     def preview(self, request):
         """
         Preview a template with example values.
+
+        Performs dynamic validation: extracts all variables from the template
+        and validates that they exist in the provided context (accent-insensitive).
         """
         serializer = TemplatePreviewSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         body = serializer.validated_data["body"]
         context = serializer.validated_data.get("context", {})
+
+        # Dynamic validation: Extract variables from template body
+        template_variables = template_service.get_variables(body)
+
+        if template_variables and context:
+            # Normalize both template variables and context keys (accent-insensitive)
+            normalized_required = {template_service._normalize(var) for var in template_variables}
+            normalized_context_keys = {template_service._normalize(k) for k in context.keys()}
+
+            # Find missing variables
+            missing_variables = normalized_required - normalized_context_keys
+
+            if missing_variables:
+                return Response(
+                    {
+                        "error": f"Missing required template variables: {', '.join(sorted(missing_variables))}",
+                        "missing_variables": sorted(list(missing_variables)),
+                        "hint": "Provide these fields in the 'context' object",
+                        "template_variables": sorted(list(template_variables)),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         # Use provided context or fall back to examples
         preview = template_service.preview_template(body, context)
