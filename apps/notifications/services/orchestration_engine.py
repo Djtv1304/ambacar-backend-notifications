@@ -101,6 +101,10 @@ class OrchestrationEngine:
         )
 
         try:
+            # Special handling for custom events (no service_type/phase required)
+            if payload.event_type == EventType.CUSTOM:
+                return self._process_custom_event(payload, correlation_id)
+
             # Step 1: Find orchestration config
             config = self._find_orchestration_config(payload)
             if not config:
@@ -251,6 +255,121 @@ class OrchestrationEngine:
                 errors=[error_message],
                 correlation_id=correlation_id,
             )
+
+    def _process_custom_event(
+        self,
+        payload: EventPayload,
+        correlation_id: str,
+    ) -> OrchestrationResult:
+        """
+        Process custom events without requiring service_type/phase.
+
+        Custom events:
+        - Don't use OrchestrationConfig
+        - Use only email and whatsapp channels (no push)
+        - Require 'subject' and 'body' in context
+        - Can optionally use template variables for personalization
+
+        Args:
+            payload: Event data with event_type = "custom"
+            correlation_id: Correlation ID for tracking
+
+        Returns:
+            OrchestrationResult with queued notification count
+        """
+        errors = []
+        notifications_queued = 0
+
+        logger.info(f"Processing custom event for customer {payload.customer_id}")
+
+        # Step 1: Validate required context fields for custom events
+        if "subject" not in payload.context or "body" not in payload.context:
+            return OrchestrationResult(
+                success=False,
+                notifications_queued=0,
+                errors=[
+                    "Custom events require 'subject' and 'body' in context. "
+                    "Example: {'subject': 'Welcome!', 'body': 'Hello {{Nombre}}...', 'nombre': 'Carlos'}"
+                ],
+                correlation_id=correlation_id,
+            )
+
+        # Step 2: Get customer info
+        customer = self._get_customer(payload.customer_id)
+        if not customer:
+            logger.error(f"Customer not found: {payload.customer_id}")
+            return OrchestrationResult(
+                success=False,
+                notifications_queued=0,
+                errors=["Customer not found"],
+                correlation_id=correlation_id,
+            )
+
+        # Step 3: Enrich context minimally (add customer name if missing)
+        enriched_context = self._enrich_context_minimal(payload, customer)
+
+        # Step 4: Render subject and body with template variables
+        subject = enriched_context.get("subject", "")
+        body = enriched_context.get("body", "")
+
+        try:
+            rendered_subject = template_service.render(subject, enriched_context)
+            rendered_body = template_service.render(body, enriched_context)
+        except Exception as e:
+            return OrchestrationResult(
+                success=False,
+                notifications_queued=0,
+                errors=[f"Template rendering failed: {str(e)}"],
+                correlation_id=correlation_id,
+            )
+
+        # Step 5: Define channels for custom events (only email and whatsapp)
+        custom_channels = [NotificationChannel.EMAIL, NotificationChannel.WHATSAPP]
+
+        # Step 6: Queue notifications for available channels
+        for channel in custom_channels:
+            recipient = customer.get_recipient_for_channel(channel)
+            if recipient:
+                try:
+                    dispatch_service.queue_notification(
+                        channel=channel,
+                        recipient=recipient,
+                        subject=rendered_subject,
+                        body=rendered_body,
+                        event_type=payload.event_type,
+                        customer_id=payload.customer_id,
+                        template_id=None,  # No template used for custom events
+                        template_name="custom_event",
+                        context=enriched_context,
+                        correlation_id=correlation_id,
+                        priority_order=[NotificationChannel.EMAIL, NotificationChannel.WHATSAPP],
+                    )
+
+                    notifications_queued += 1
+                    logger.info(f"Queued custom {channel} notification to {recipient}")
+
+                except Exception as e:
+                    error_msg = f"Failed to queue custom {channel}: {str(e)}"
+                    errors.append(error_msg)
+                    logger.error(error_msg)
+            else:
+                logger.info(f"No {channel} recipient for customer {payload.customer_id}")
+
+        # Step 7: Check if at least one notification was queued
+        if notifications_queued == 0:
+            return OrchestrationResult(
+                success=False,
+                notifications_queued=0,
+                errors=["No valid email or whatsapp contact for this customer"],
+                correlation_id=correlation_id,
+            )
+
+        return OrchestrationResult(
+            success=len(errors) == 0,
+            notifications_queued=notifications_queued,
+            errors=errors,
+            correlation_id=correlation_id,
+        )
 
     def _enrich_context_minimal(
         self,

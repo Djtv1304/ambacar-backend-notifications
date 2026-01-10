@@ -114,33 +114,37 @@ based on orchestration configuration.
         data = serializer.validated_data
 
         # Basic validation: Check minimum universal fields
+        # Skip this validation for custom events (they have different requirements)
         # Full dynamic validation (based on actual template variables) happens in orchestration_engine
-        target = data.get("target", "clients")
-        minimum_fields = MINIMUM_CONTEXT_FIELDS.get(target, [])
+        from apps.core.constants import EventType
 
-        # Normalize context keys for comparison (accent-insensitive)
-        normalized_context_keys = {
-            template_service._normalize(k)
-            for k in data.get("context", {}).keys()
-        }
+        if data["event_type"] != EventType.CUSTOM:
+            target = data.get("target", "clients")
+            minimum_fields = MINIMUM_CONTEXT_FIELDS.get(target, [])
 
-        missing_minimum_fields = [
-            field for field in minimum_fields
-            if field not in normalized_context_keys
-        ]
+            # Normalize context keys for comparison (accent-insensitive)
+            normalized_context_keys = {
+                template_service._normalize(k)
+                for k in data.get("context", {}).keys()
+            }
 
-        if missing_minimum_fields:
-            return Response(
-                {
-                    "success": False,
-                    "error": f"Missing minimum required context fields: {', '.join(missing_minimum_fields)}",
-                    "missing_fields": missing_minimum_fields,
-                    "hint": "Provide at least these universal fields in the 'context' object",
-                    "minimum_fields": minimum_fields,
-                    "correlation_id": str(data["correlation_id"]) if data.get("correlation_id") else None,
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            missing_minimum_fields = [
+                field for field in minimum_fields
+                if field not in normalized_context_keys
+            ]
+
+            if missing_minimum_fields:
+                return Response(
+                    {
+                        "success": False,
+                        "error": f"Missing minimum required context fields: {', '.join(missing_minimum_fields)}",
+                        "missing_fields": missing_minimum_fields,
+                        "hint": "Provide at least these universal fields in the 'context' object",
+                        "minimum_fields": minimum_fields,
+                        "correlation_id": str(data["correlation_id"]) if data.get("correlation_id") else None,
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         # Build event payload
         payload = EventPayload(

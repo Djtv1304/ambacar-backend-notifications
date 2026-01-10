@@ -149,88 +149,192 @@ Celery Beat para tareas programadas (usa DatabaseScheduler)
 
 ### API Externa (`/api/v1/`)
 
-#### Eventos y Notificaciones
+#### Events - Notification Dispatch
 
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| POST | `/api/v1/notifications/events/dispatch/` | Disparar notificación basada en evento del flujo de servicio |
+| Método | Endpoint | Descripción | Response Codes |
+|--------|----------|-------------|----------------|
+| POST | `/api/v1/notifications/events/dispatch/` | Disparar notificación basada en evento del flujo de servicio | `202` Accepted (notifications queued)<br>`400` Bad Request (service_type/customer not found, validation failed, missing context variables)<br>`500` Internal Server Error (template rendering errors, server failures) |
 
-#### Gestión de Plantillas
+#### Catalog - Lookup Available Options
 
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| GET/POST/PUT/DELETE | `/api/v1/notifications/templates/` | CRUD de plantillas de notificación |
-| POST | `/api/v1/notifications/templates/preview/` | Vista previa de plantilla con contexto |
-| GET | `/api/v1/notifications/templates/variables/` | Listar variables disponibles |
-| GET | `/api/v1/notifications/templates/for_context/` | Obtener plantilla para contexto específico |
+| Método | Endpoint | Descripción | Response Codes |
+|--------|----------|-------------|----------------|
+| GET | `/api/v1/notifications/catalog/` | Obtener catálogo completo de slugs (service_types y phases) para usar en dispatch | `200` OK |
 
-#### Catálogo
+#### Templates - Notification Template Management
 
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| GET | `/api/v1/notifications/catalog/` | Obtener catálogo de slugs (service_types y phases) para usar en dispatch |
+| Método | Endpoint | Descripción | Response Codes |
+|--------|----------|-------------|----------------|
+| GET | `/api/v1/notifications/templates/` | Listar todas las plantillas de notificación con paginación | `200` OK |
+| GET | `/api/v1/notifications/templates/{id}/` | Obtener detalles de una plantilla específica | `200` OK<br>`404` Not Found |
+| POST | `/api/v1/notifications/templates/` | Crear una nueva plantilla de notificación | `201` Created<br>`400` Bad Request |
+| PUT | `/api/v1/notifications/templates/{id}/` | Actualizar plantilla completa (todos los campos requeridos) | `200` OK<br>`400` Bad Request<br>`404` Not Found |
+| PATCH | `/api/v1/notifications/templates/{id}/` | Actualizar parcialmente plantilla (solo campos provistos) | `200` OK<br>`400` Bad Request<br>`404` Not Found |
+| DELETE | `/api/v1/notifications/templates/{id}/` | Eliminar una plantilla | `204` No Content<br>`404` Not Found |
+| POST | `/api/v1/notifications/templates/preview/` | Vista previa de plantilla con contexto (incluye validación dinámica de variables) | `200` OK<br>`400` Bad Request (missing variables) |
+| GET | `/api/v1/notifications/templates/variables/` | Listar todas las variables disponibles para templates | `200` OK |
+| GET | `/api/v1/notifications/templates/for_context/` | Obtener plantilla filtrada por contexto (service_type + phase + channel + target + optional subtype) | `200` OK<br>`404` Not Found |
 
-#### Configuración de Orquestación
+**Filtros disponibles** (GET list):
+- `channel` - Filtrar por canal de notificación (email/whatsapp/push)
+- `target` - Filtrar por audiencia objetivo (clients/staff)
+- `service_type_id` - Filtrar por UUID de tipo de servicio
+- `phase_id` - Filtrar por UUID de fase de servicio
+- `taller_id` - Filtrar por UUID de taller (null para plantillas globales)
+- `is_active` - Filtrar por estado activo (true/false)
 
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| GET | `/api/v1/notifications/phases/` | Listar fases de servicio (5 fases) |
-| GET | `/api/v1/notifications/service-types/` | Listar tipos de servicio y subtipos |
-| GET/POST/PUT/DELETE | `/api/v1/notifications/orchestration/` | CRUD de configuración de orquestación |
-| POST | `/api/v1/notifications/orchestration/{id}/update_matrix/` | Actualizar matriz de canales por fase |
-| POST | `/api/v1/notifications/orchestration/{id}/initialize_phases/` | Inicializar configuración de fases |
+#### Orchestration Configuration
 
-#### Gestión de Clientes y Vehículos
+##### Service Phases (Read-only)
 
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| GET/POST/PUT/DELETE | `/api/v1/notifications/customers/` | CRUD de información de clientes |
-| GET | `/api/v1/notifications/customers/{id}/preferences/` | Obtener preferencias de canal del cliente |
-| POST | `/api/v1/notifications/customers/{id}/update_preferences/` | Actualizar preferencias de canal |
-| GET | `/api/v1/notifications/customers/{id}/vehicles/` | Listar vehículos del cliente |
-| GET | `/api/v1/notifications/customers/{id}/reminders/` | Listar recordatorios del cliente |
-| GET/POST/PUT/DELETE | `/api/v1/notifications/vehicles/` | CRUD de vehículos |
+| Método | Endpoint | Descripción | Response Codes |
+|--------|----------|-------------|----------------|
+| GET | `/api/v1/notifications/phases/` | Listar todas las fases de servicio ordenadas (5 fases del flujo) | `200` OK |
+| GET | `/api/v1/notifications/phases/{id}/` | Obtener detalles de una fase específica | `200` OK<br>`404` Not Found |
 
-#### Recordatorios de Mantenimiento
+##### Service Types (Read-only)
 
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| GET/POST/PUT/DELETE | `/api/v1/notifications/reminders/` | CRUD de recordatorios de mantenimiento |
-| POST | `/api/v1/notifications/reminders/{id}/complete/` | Marcar recordatorio como completado |
+| Método | Endpoint | Descripción | Response Codes |
+|--------|----------|-------------|----------------|
+| GET | `/api/v1/notifications/service-types/` | Listar todos los tipos de servicio con sus subtipos | `200` OK |
+| GET | `/api/v1/notifications/service-types/{id}/` | Obtener detalles de un tipo de servicio específico | `200` OK<br>`404` Not Found |
 
-#### Push Notifications
+##### Orchestration Configs (Full CRUD)
 
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| POST | `/api/v1/notifications/push/subscribe/` | Suscribir/actualizar suscripción push |
-| DELETE | `/api/v1/notifications/push/subscribe/` | Cancelar suscripción push |
-| GET | `/api/v1/notifications/push/status/{customer_id}/` | Verificar estado de suscripción |
+| Método | Endpoint | Descripción | Response Codes |
+|--------|----------|-------------|----------------|
+| GET | `/api/v1/notifications/orchestration/` | Listar configuraciones de orquestación con paginación | `200` OK |
+| GET | `/api/v1/notifications/orchestration/{id}/` | Obtener config de orquestación con settings de canales por fase | `200` OK<br>`404` Not Found |
+| POST | `/api/v1/notifications/orchestration/` | Crear nueva configuración de orquestación | `201` Created<br>`400` Bad Request |
+| PUT | `/api/v1/notifications/orchestration/{id}/` | Actualizar config completa (todos los campos requeridos) | `200` OK<br>`400` Bad Request<br>`404` Not Found |
+| PATCH | `/api/v1/notifications/orchestration/{id}/` | Actualizar parcialmente config (solo campos provistos) | `200` OK<br>`400` Bad Request<br>`404` Not Found |
+| DELETE | `/api/v1/notifications/orchestration/{id}/` | Eliminar configuración de orquestación | `204` No Content<br>`404` Not Found |
+| POST | `/api/v1/notifications/orchestration/{id}/update_matrix/` | Actualizar en batch configuraciones de canales por fase (matriz completa) | `200` OK<br>`400` Bad Request<br>`404` Not Found |
+| POST | `/api/v1/notifications/orchestration/{id}/initialize_phases/` | Crear configs por defecto de canales para todas las fases | `200` OK<br>`404` Not Found |
 
-#### Analytics
+**Filtros disponibles** (GET list):
+- `service_type_id` - Filtrar por UUID de tipo de servicio
+- `target` - Filtrar por audiencia objetivo (clients/staff)
+- `taller_id` - Filtrar por UUID de taller (null para configs globales)
 
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| GET | `/api/v1/analytics/summary/` | Resumen de métricas (últimos N días) |
-| GET | `/api/v1/analytics/recent/` | Notificaciones recientes (log) |
-| GET | `/api/v1/analytics/health/` | Estado de salud de canales (últimas 24h) |
+#### Customers & Vehicles
+
+##### Customer Contact Info (Full CRUD)
+
+| Método | Endpoint | Descripción | Response Codes |
+|--------|----------|-------------|----------------|
+| GET | `/api/v1/notifications/customers/` | Listar todos los clientes con paginación y búsqueda | `200` OK |
+| GET | `/api/v1/notifications/customers/{customer_id}/` | Obtener información detallada de un cliente | `200` OK<br>`404` Not Found |
+| POST | `/api/v1/notifications/customers/` | Crear nuevo cliente | `201` Created<br>`400` Bad Request |
+| PUT | `/api/v1/notifications/customers/{customer_id}/` | Actualizar cliente completo (todos los campos requeridos) | `200` OK<br>`400` Bad Request<br>`404` Not Found |
+| PATCH | `/api/v1/notifications/customers/{customer_id}/` | Actualizar parcialmente cliente (solo campos provistos) | `200` OK<br>`400` Bad Request<br>`404` Not Found |
+| DELETE | `/api/v1/notifications/customers/{customer_id}/` | Eliminar cliente | `204` No Content<br>`404` Not Found |
+| GET | `/api/v1/notifications/customers/{customer_id}/preferences/` | Obtener preferencias de canales de notificación del cliente | `200` OK<br>`404` Not Found |
+| POST | `/api/v1/notifications/customers/{customer_id}/update_preferences/` | Actualizar preferencias de canales (email, whatsapp, push con prioridad) | `200` OK<br>`400` Bad Request<br>`404` Not Found |
+| GET | `/api/v1/notifications/customers/{customer_id}/vehicles/` | Listar todos los vehículos asociados al cliente | `200` OK<br>`404` Not Found |
+| GET | `/api/v1/notifications/customers/{customer_id}/reminders/` | Listar recordatorios de mantenimiento del cliente | `200` OK<br>`404` Not Found |
+
+**Filtros disponibles**:
+- Paginación estándar y búsqueda por nombre/email/phone
+
+**Filtros para reminders**:
+- `status` - Filtrar por estado (pending/completed/cancelled)
+
+##### Vehicles (Full CRUD)
+
+| Método | Endpoint | Descripción | Response Codes |
+|--------|----------|-------------|----------------|
+| GET | `/api/v1/notifications/vehicles/` | Listar todos los vehículos con paginación | `200` OK |
+| GET | `/api/v1/notifications/vehicles/{id}/` | Obtener información detallada de un vehículo | `200` OK<br>`404` Not Found |
+| POST | `/api/v1/notifications/vehicles/` | Crear nuevo vehículo | `201` Created<br>`400` Bad Request |
+| PUT | `/api/v1/notifications/vehicles/{id}/` | Actualizar vehículo completo (todos los campos requeridos) | `200` OK<br>`400` Bad Request<br>`404` Not Found |
+| PATCH | `/api/v1/notifications/vehicles/{id}/` | Actualizar parcialmente vehículo (solo campos provistos) | `200` OK<br>`400` Bad Request<br>`404` Not Found |
+| DELETE | `/api/v1/notifications/vehicles/{id}/` | Eliminar vehículo | `204` No Content<br>`404` Not Found |
+
+**Filtros disponibles** (GET list):
+- `customer_id` - Filtrar por UUID de cliente
+- `plate` - Búsqueda por placa del vehículo
+
+##### Maintenance Reminders (Full CRUD + Actions)
+
+| Método | Endpoint | Descripción | Response Codes |
+|--------|----------|-------------|----------------|
+| GET | `/api/v1/notifications/reminders/` | Listar recordatorios de mantenimiento con paginación | `200` OK |
+| GET | `/api/v1/notifications/reminders/{id}/` | Obtener detalles de un recordatorio específico | `200` OK<br>`404` Not Found |
+| POST | `/api/v1/notifications/reminders/` | Crear nuevo recordatorio de mantenimiento | `201` Created<br>`400` Bad Request |
+| PUT | `/api/v1/notifications/reminders/{id}/` | Actualizar recordatorio completo (todos los campos requeridos) | `200` OK<br>`400` Bad Request<br>`404` Not Found |
+| PATCH | `/api/v1/notifications/reminders/{id}/` | Actualizar parcialmente recordatorio (solo campos provistos) | `200` OK<br>`400` Bad Request<br>`404` Not Found |
+| DELETE | `/api/v1/notifications/reminders/{id}/` | Eliminar recordatorio | `204` No Content<br>`404` Not Found |
+| POST | `/api/v1/notifications/reminders/{id}/complete/` | Marcar recordatorio como completado | `200` OK<br>`404` Not Found |
+
+**Filtros disponibles** (GET list):
+- `status` - Filtrar por estado (pending/completed/cancelled)
+- `customer_id` - Filtrar por UUID de cliente
+- `vehicle_id` - Filtrar por UUID de vehículo
+
+#### Push Notifications - Web Push Management
+
+| Método | Endpoint | Descripción | Response Codes |
+|--------|----------|-------------|----------------|
+| POST | `/api/v1/notifications/push/subscribe/` | Suscribir o actualizar suscripción push (desde PWA) | `201` Created<br>`400` Bad Request |
+| DELETE | `/api/v1/notifications/push/subscribe/` | Cancelar suscripción push del cliente | `204` No Content<br>`404` Not Found |
+| GET | `/api/v1/notifications/push/status/{customer_id}/` | Verificar si cliente tiene suscripción push activa | `200` OK<br>`404` Not Found |
+
+#### Analytics - Notification Metrics & Health
+
+| Método | Endpoint | Descripción | Response Codes |
+|--------|----------|-------------|----------------|
+| GET | `/api/v1/analytics/summary/` | Resumen agregado de estadísticas de notificaciones | `200` OK |
+| GET | `/api/v1/analytics/recent/` | Obtener entradas recientes del log de notificaciones | `200` OK |
+| GET | `/api/v1/analytics/health/` | Estado de salud de cada canal (email, whatsapp, push) en últimas 24h | `200` OK |
+
+**Filtros disponibles**:
+- **Summary:**
+  - `days` - Número de días a analizar (default: 30)
+- **Recent:**
+  - `limit` - Número de logs recientes a retornar
+  - `channel` - Filtrar por canal
+  - `status` - Filtrar por estado
+
+**Métricas incluidas en Summary:**
+- Sent/delivered/failed counts
+- Delivery rate percentage
+- Average delivery time
+- Breakdown by channel/status/event type
+- Daily trends
 
 #### Health Checks
 
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| GET | `/api/v1/health/database/` | Verificar estado de conexión a base de datos Supabase/PostgreSQL |
+| Método | Endpoint | Descripción | Response Codes |
+|--------|----------|-------------|----------------|
+| GET | `/api/v1/health/database/` | Verificar estado de conexión a PostgreSQL/Supabase | `200` OK<br>`503` Service Unavailable |
+
+**Información incluida:**
+- Connection status (healthy/unhealthy)
+- Database engine, name, host, port, user
+- PostgreSQL version
+- Detection de Supabase (is_supabase flag)
+- Connection pool settings (max_age, health_checks_enabled)
 
 ### API Interna (`/api/internal/v1/`) - Service-to-Service
 
-**Autenticación**: Requiere header `X-Internal-Secret` con valor de `INTERNAL_API_SECRET_KEY`
+**Autenticación requerida**: Header `X-Internal-Secret` con valor de `INTERNAL_API_SECRET_KEY`
 
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| POST | `/api/internal/v1/customers/sync/` | Webhook para sincronizar datos de clientes desde servicio Core |
-| POST | `/api/internal/v1/vehicles/sync/` | Webhook para sincronizar datos de vehículos desde servicio Core |
-| GET | `/api/internal/v1/tasks/{task_id}/status/` | Verificar estado de tarea asíncrona de sincronización |
+#### Synchronization - Data Sync (Table Projection Pattern)
+
+| Método | Endpoint | Descripción | Response Codes |
+|--------|----------|-------------|----------------|
+| POST | `/api/internal/v1/customers/sync/` | Webhook para sincronizar datos de clientes desde servicio Core | `202` Accepted (sync queued)<br>`400` Bad Request (invalid payload)<br>`401` Unauthorized (invalid API key) |
+| POST | `/api/internal/v1/vehicles/sync/` | Webhook para sincronizar datos de vehículos desde servicio Core | `202` Accepted (sync queued)<br>`400` Bad Request (invalid payload)<br>`401` Unauthorized (invalid API key) |
+| GET | `/api/internal/v1/tasks/{task_id}/status/` | Verificar estado de tarea Celery asíncrona por task_id | `200` OK<br>`404` Not Found (task not found) |
 
 **Patrón**: Table Projection - sincronización asíncrona vía Celery (cola `sync`)
+
+**Procesamiento:**
+1. Request recibido → Validación de autenticación
+2. Encolado → Celery task en cola `sync`
+3. Procesamiento async → Crear/actualizar registro local
+4. Sincronización → Datos disponibles para orquestación de notificaciones
 
 ### Notas sobre Health Checks
 

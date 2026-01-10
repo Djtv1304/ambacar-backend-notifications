@@ -561,13 +561,30 @@ apps/
   - NO se auto-enriquecen campos ambiguos: `vehiculo`, `taller`, `placa` (cliente puede tener múltiples vehículos/talleres)
   - Context del request SIEMPRE tiene precedencia sobre auto-enriquecimiento
   - Método: `OrchestrationEngine._enrich_context_minimal()`
-- ✅ **Validación estricta de campos vitales en dispatch**:
-  - Endpoint retorna `400 Bad Request` si faltan campos requeridos en context
-  - Campos requeridos para "clients": nombre, vehiculo, placa, taller, fecha, hora
-  - Campos requeridos para "staff": nombre, vehiculo, placa, taller
-  - Campos opcionales (no validados): orden, tecnico, fase (dependientes del contexto)
-  - Impacto: Previene notificaciones con placeholders `{{Variable}}` vacíos, fuerza al caller a proporcionar data completa
-  - Archivo modificado: `apps/notifications/views/events.py`
+  - Archivo modificado: `apps/notifications/services/orchestration_engine.py`
+- ✅ **Validación DINÁMICA de variables de template** (Arquitectura híbrida):
+  - **Problema identificado**: Validación estática con lista hardcoded no se adapta a templates creados desde frontend
+  - **Solución**: Arquitectura híbrida de 2 capas:
+    1. **Validación mínima en `events.py`** (fast-fail): Solo 3 campos universales (nombre, vehiculo, placa)
+    2. **Validación dinámica en `orchestration_engine.py`** (completa): Extrae variables de templates reales y valida contra context
+  - **Método `_validate_template_variables()`**:
+    - Extrae TODAS las variables de templates habilitados usando `template_service.get_variables()`
+    - Valida que todas las variables extraídas existan en `enriched_context` (accent-insensitive)
+    - Ejecuta DESPUÉS de enriquecimiento y ANTES de renderizado
+    - Retorna `400 Bad Request` con lista de variables faltantes si la validación falla
+  - **Endpoint `preview` en `templates.py`**:
+    - También implementa validación dinámica para prevenir errores de rendering
+    - Extrae variables del template body y valida contra context provisto
+    - Retorna error claro si faltan variables antes de intentar renderizar
+  - **Ventajas**:
+    - ✅ Se adapta automáticamente cuando se agregan nuevas variables a templates
+    - ✅ No requiere actualizar código cuando cambian templates
+    - ✅ Valida EXACTAMENTE lo que el template necesita (no más, no menos)
+    - ✅ Previene notificaciones con placeholders `{{Variable}}` vacíos
+  - **Archivos modificados**:
+    - `apps/notifications/services/orchestration_engine.py` (validación principal)
+    - `apps/notifications/views/events.py` (validación mínima universal)
+    - `apps/notifications/views/templates.py` (validación en preview endpoint)
 
 ### Diciembre 2025
 - ✅ Implementado patrón Table Projection (sincronización async)

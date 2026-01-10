@@ -32,11 +32,15 @@ class EventDispatchSerializer(serializers.Serializer):
     )
     service_type_id = serializers.CharField(
         max_length=100,
-        help_text="Service type identifier (e.g., 'mantenimiento-preventivo')",
+        required=False,
+        allow_null=True,
+        help_text="Service type identifier (e.g., 'mantenimiento-preventivo'). Optional for custom events.",
     )
     phase_id = serializers.CharField(
         max_length=100,
-        help_text="Service phase identifier (e.g., 'phase-schedule')",
+        required=False,
+        allow_null=True,
+        help_text="Service phase identifier (e.g., 'phase-schedule'). Optional for custom events.",
     )
     customer_id = serializers.CharField(
         max_length=100,
@@ -70,6 +74,30 @@ class EventDispatchSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Optional correlation ID for tracking related events",
     )
+
+    def validate(self, data):
+        """
+        Cross-field validation: service_type_id and phase_id are required
+        for all event types EXCEPT custom.
+        """
+        event_type = data.get("event_type")
+        service_type_id = data.get("service_type_id")
+        phase_id = data.get("phase_id")
+
+        # For non-custom events, service_type_id and phase_id are required
+        if event_type != EventType.CUSTOM:
+            if not service_type_id:
+                raise serializers.ValidationError({
+                    "service_type_id": "This field is required for non-custom events. "
+                                      "Only 'custom' event type can omit this field."
+                })
+            if not phase_id:
+                raise serializers.ValidationError({
+                    "phase_id": "This field is required for non-custom events. "
+                               "Only 'custom' event type can omit this field."
+                })
+
+        return data
 
 
 class EventDispatchResponseSerializer(serializers.Serializer):
