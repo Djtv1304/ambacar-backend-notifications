@@ -458,6 +458,111 @@ IMPORTANTE: Solo debe haber 1 instancia de Beat corriendo
 - Retry task: 2/h (era ~96/h con 15min interval)
 - Overhead normal: ~108/h (queuing, results, connections)
 
+### 8. Worker se reinicia constantemente en Coolify (después de migrar de Upstash a Redis local)
+
+**Síntoma:**
+- Worker reinicia cada 30-50 minutos en Coolify
+- Health check de Redis muestra estado "healthy" con conexión exitosa
+- Notificaciones se quedan encoladas y nunca se procesan
+- Logs muestran múltiples inicios del worker sin mensajes de error claros
+
+**Causa:**
+Configuraciones optimizadas para **Upstash Redis con SSL** (`rediss://`) son incompatibles con **Redis local sin SSL** (`redis://`):
+
+1. **`--without-heartbeat` en worker command**: Deshabilita heartbeats, causando que Redis local cierre conexiones idle por timeout
+2. **`socket_keepalive_options` agresivas**: Configuradas para conexiones SSL/TLS remotas, no funcionan bien con Redis local
+3. **Health check HTTP en Coolify**: Worker es un proceso CLI sin servidor HTTP, Coolify lo detecta como "unhealthy"
+
+**Solución (Enero 2026):**
+
+✅ **1. Actualizar `docker-compose.worker.yml`:**
+```yaml
+# ANTES (optimizado para Upstash SSL):
+command: 'celery -A config worker -l info -Q notifications,sync,maintenance --pool=solo --without-gossip --without-mingle --without-heartbeat'
+
+# DESPUÉS (compatible con Redis local):
+command: 'celery -A config worker -l info -Q notifications,sync,maintenance --pool=solo --without-gossip --without-mingle'
+```
+**Cambio:** Removido `--without-heartbeat` para permitir heartbeats normales con Redis local.
+
+✅ **2. Configuración adaptativa en `config/settings/base.py`:**
+
+**Heartbeat adaptativo:**
+```python
+# Detectar tipo de Redis por URL
+_redis_url = os.environ.get("REDIS_URL", "")
+if _redis_url.startswith("rediss://"):
+    CELERY_BROKER_HEARTBEAT = 240  # 4 min para Upstash SSL
+else:
+    CELERY_BROKER_HEARTBEAT = 60  # 1 min para Redis local
+```
+
+**Transport options adaptativas:**
+```python
+if _redis_url.startswith("rediss://"):
+    # Upstash con SSL: keepalive agresivo para SSL/TLS
+    CELERY_BROKER_TRANSPORT_OPTIONS = {
+        'visibility_timeout': 3600,
+        'socket_timeout': 30,
+        'socket_connect_timeout': 30,
+        'socket_keepalive': True,
+        'socket_keepalive_options': {
+            socket.TCP_KEEPIDLE: 30,
+            socket.TCP_KEEPINTVL: 10,
+            socket.TCP_KEEPCNT: 3,
+        },
+        'max_connections': 5,
+    }
+else:
+    # Redis local: configuración simple y estable
+    CELERY_BROKER_TRANSPORT_OPTIONS = {
+        'visibility_timeout': 3600,
+        'socket_timeout': 120,  # Timeout más largo para conexiones estables
+        'socket_connect_timeout': 10,
+        'max_connections': 10,  # Sin límites estrictos de tier
+    }
+```
+
+✅ **3. Desactivar Health Check HTTP en Coolify (CRÍTICO):**
+
+**Problema:** Coolify intenta hacer health checks HTTP al Worker, pero el Worker es un proceso CLI sin servidor HTTP.
+
+**Pasos en Coolify UI:**
+1. Ir a recurso `ambacar-notifications-worker`
+2. Pestaña **"Configuration"** o **"Health Check"**
+3. **Deshabilitar** el health check HTTP o configurar correctamente:
+   - **Opción 1 (Recomendada):** Deshabilitar health check completamente (Worker no necesita HTTP)
+   - **Opción 2:** Cambiar a health check tipo "process" que verifique que el proceso `celery` esté corriendo
+4. Guardar y redesplegar
+
+**Verificación después de aplicar:**
+```bash
+# 1. Verificar que el worker no se reinicie después de 5-10 minutos
+# 2. Health check de Redis debe seguir mostrando "healthy"
+curl https://your-app.com/api/v1/health/redis/
+
+# 3. Disparar una notificación de prueba
+curl -X POST https://your-app.com/api/v1/notifications/events/dispatch/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "service_type_id": "mantenimiento-preventivo",
+    "phase_id": "phase-schedule",
+    "customer_id": "CLI-001",
+    "target": "clients",
+    "context": {...}
+  }'
+
+# 4. Verificar que la notificación se procese (queue notifications debe bajar de 2 → 0)
+curl https://your-app.com/api/v1/health/redis/
+# "queues": { "notifications": 0 }  ← debe ser 0 después de procesarse
+```
+
+**Resultado esperado:**
+- ✅ Worker NO se reinicia automáticamente
+- ✅ Notificaciones encoladas se procesan correctamente
+- ✅ Health check de Redis sigue mostrando "healthy"
+- ✅ Queue `notifications` pasa de 2 → 0 después de procesar
+
 ---
 
 ## Estructura de Archivos Importante
@@ -591,6 +696,21 @@ apps/
   - Retorna: estado de conexión, latencia PING, longitud de colas (notifications, sync, maintenance), connection pool settings
   - Útil para validar configuración de Redis en Coolify después de despliegues
   - Archivos creados: `apps/core/views.py` (RedisHealthView), actualizado `apps/core/urls.py`
+- ✅ **Soporte dual Redis: Upstash SSL + Redis local** (Configuración adaptativa):
+  - **Problema**: Configuraciones optimizadas para Upstash Redis con SSL (`rediss://`) causaban reinicios constantes del Worker al migrar a Redis local (`redis://`) en Coolify
+  - **Síntomas**: Worker reiniciaba cada 30-50 min, notificaciones encoladas no se procesaban, health check mostraba "healthy" pero logs sin errores claros
+  - **Causa raíz**:
+    - `--without-heartbeat` en worker command causaba timeouts con Redis local
+    - `socket_keepalive_options` agresivas optimizadas para SSL/TLS remotas incompatibles con Redis local
+    - Coolify con health check HTTP en Worker (proceso CLI sin HTTP) → "unhealthy" → restart loop
+  - **Solución**:
+    - Removido `--without-heartbeat` de `docker-compose.worker.yml` (permite heartbeats normales)
+    - Configuración adaptativa en `base.py` detecta `rediss://` vs `redis://`:
+      - **Upstash SSL**: `CELERY_BROKER_HEARTBEAT = 240s`, socket keepalive agresivo, `max_connections = 5`
+      - **Redis local**: `CELERY_BROKER_HEARTBEAT = 60s`, timeouts largos (120s), sin keepalive TCP, `max_connections = 10`
+    - Documentado cómo desactivar health check HTTP en Coolify para Worker
+  - **Impacto**: Worker estable sin reinicios, notificaciones procesadas correctamente, compatible con ambos tipos de Redis
+  - **Archivos modificados**: `docker-compose.worker.yml`, `config/settings/base.py`, `CLAUDE.md` (troubleshooting #8)
 
 ### Diciembre 2025
 - ✅ Implementado patrón Table Projection (sincronización async)

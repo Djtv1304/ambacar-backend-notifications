@@ -179,36 +179,45 @@ CELERY_WORKER_CANCEL_LONG_RUNNING_TASKS_ON_CONNECTION_LOSS = True
 CELERY_TASK_SEND_SENT_EVENT = False
 CELERY_WORKER_SEND_TASK_EVENTS = False
 
-# Increase heartbeat interval to reduce PING commands (default is 2s, we use 4 minutes)
-# NOTE: Upstash has 310s idle timeout, so we use 240s to stay safely below that
-CELERY_BROKER_HEARTBEAT = 240  # 4 minutes in seconds
+# Heartbeat interval: adaptive based on Redis type
+# Upstash has 310s idle timeout, so we use 240s to stay safely below that
+# Local Redis can use default or shorter interval for faster failure detection
+_redis_url = os.environ.get("REDIS_URL", "")
+if _redis_url.startswith("rediss://"):
+    CELERY_BROKER_HEARTBEAT = 240  # 4 minutes for Upstash SSL
+else:
+    CELERY_BROKER_HEARTBEAT = 60  # 1 minute for local Redis (faster failure detection)
 
 # Disable prefetch to reduce memory and Redis commands on idle workers
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 
 # Optimization: Reduce BRPOP polling frequency (critical for Upstash free tier)
-# Properly configured for Upstash Redis over SSL
-CELERY_BROKER_TRANSPORT_OPTIONS = {
-    # Visibility timeout: max time a task can run before requeued
-    # Default is 3600s (1h), which is appropriate for our tasks (max 30min per CELERY_TASK_TIME_LIMIT)
-    'visibility_timeout': 3600,  # 1 hour (Celery default)
+# Adaptive configuration based on Redis type (local vs SSL/Upstash)
+_redis_url = os.environ.get("REDIS_URL", "")
+_using_redis_ssl = _redis_url.startswith("rediss://")
 
-    # Socket timeouts for stable SSL connections with Upstash
-    'socket_timeout': 30,
-    'socket_connect_timeout': 30,
-
-    # TCP keepalive to maintain persistent connections (helps with SSL/TLS)
-    'socket_keepalive': True,
-    'socket_keepalive_options': {
-        socket.TCP_KEEPIDLE: 30,   # Seconds before sending keepalive probes
-        socket.TCP_KEEPINTVL: 10,  # Interval between keepalive probes
-        socket.TCP_KEEPCNT: 3,     # Number of failed probes before giving up
-    },
-
-    # Connection pool limit per worker (conservative for Upstash concurrent connection limits)
-    # With 3 instances (Web, Worker, Beat) × 5 = ~15 concurrent connections (safe for free tier)
-    'max_connections': 5,
-}
+if _using_redis_ssl:
+    # Upstash Redis with SSL: Use optimized settings for remote SSL connections
+    CELERY_BROKER_TRANSPORT_OPTIONS = {
+        'visibility_timeout': 3600,  # 1 hour (Celery default)
+        'socket_timeout': 30,
+        'socket_connect_timeout': 30,
+        'socket_keepalive': True,
+        'socket_keepalive_options': {
+            socket.TCP_KEEPIDLE: 30,   # Seconds before sending keepalive probes
+            socket.TCP_KEEPINTVL: 10,  # Interval between keepalive probes
+            socket.TCP_KEEPCNT: 3,     # Number of failed probes before giving up
+        },
+        'max_connections': 5,
+    }
+else:
+    # Local Redis without SSL: Use simpler, more stable settings
+    CELERY_BROKER_TRANSPORT_OPTIONS = {
+        'visibility_timeout': 3600,  # 1 hour (Celery default)
+        'socket_timeout': 120,  # Longer timeout for stable local connections
+        'socket_connect_timeout': 10,  # Quick connect for local Redis
+        'max_connections': 10,  # More connections for local Redis (no tier limits)
+    }
 
 # Limit broker connection pool (prevents connection leaks)
 CELERY_BROKER_POOL_LIMIT = 5
