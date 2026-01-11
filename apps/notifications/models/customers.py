@@ -45,16 +45,6 @@ class CustomerContactInfo(BaseModel):
         null=True,
         help_text="WhatsApp number (may differ from phone)"
     )
-    preferred_language = models.CharField(
-        max_length=10,
-        default="es",
-        help_text="ISO language code (e.g., 'es', 'en')"
-    )
-    avatar_url = models.URLField(
-        blank=True,
-        null=True,
-        help_text="Profile image URL"
-    )
 
     # Sync tracking fields (Table Projection pattern)
     last_synced_at = models.DateTimeField(

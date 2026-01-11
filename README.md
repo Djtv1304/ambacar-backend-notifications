@@ -308,13 +308,22 @@ Celery Beat para tareas programadas (usa DatabaseScheduler)
 | Método | Endpoint | Descripción | Response Codes |
 |--------|----------|-------------|----------------|
 | GET | `/api/v1/health/database/` | Verificar estado de conexión a PostgreSQL/Supabase | `200` OK<br>`503` Service Unavailable |
+| GET | `/api/v1/health/redis/` | Verificar estado de conexión a Redis (Celery broker) | `200` OK<br>`503` Service Unavailable |
 
-**Información incluida:**
+**Database Health - Información incluida:**
 - Connection status (healthy/unhealthy)
 - Database engine, name, host, port, user
 - PostgreSQL version
 - Detection de Supabase (is_supabase flag)
 - Connection pool settings (max_age, health_checks_enabled)
+
+**Redis Health - Información incluida:**
+- Connection status (healthy/unhealthy)
+- PING response
+- Latency en milisegundos
+- Longitud de colas (notifications, sync, maintenance)
+- Broker URL (con password enmascarado)
+- Connection pool settings (max_connections)
 
 ### API Interna (`/api/internal/v1/`) - Service-to-Service
 
@@ -342,6 +351,7 @@ El servicio incluye endpoints de health check para monitoreo y validación de de
 
 - **`/api/v1/analytics/health/`**: Verifica el estado de los canales de notificación (email, WhatsApp, push). Retorna tasas de éxito/fallo de las últimas 24 horas.
 - **`/api/v1/health/database/`**: Verifica la conexión a PostgreSQL/Supabase. Retorna información detallada de la base de datos incluyendo versión, host, puerto, y detecta automáticamente si está conectado a Supabase. Útil para validar configuración después de despliegues en Coolify.
+- **`/api/v1/health/redis/`**: Verifica la conexión a Redis (Celery broker). Retorna estado de conexión, latencia PING, longitud de colas (notifications, sync, maintenance), y configuración del connection pool. Útil para verificar conectividad desde los servicios Web/Worker/Beat en Coolify.
 
 **Ejemplo de respuesta del database health check**:
 ```json
@@ -359,6 +369,27 @@ El servicio incluye endpoints de health check para monitoreo y validación de de
   "connection": {
     "max_age": 600,
     "health_checks_enabled": true
+  }
+}
+```
+
+**Ejemplo de respuesta del Redis health check**:
+```json
+{
+  "status": "healthy",
+  "redis": {
+    "connected": true,
+    "ping": "PONG",
+    "latency_ms": 5.23,
+    "url": "redis://:****@ambacar-notifications-redis:6379/0"
+  },
+  "queues": {
+    "notifications": 0,
+    "sync": 0,
+    "maintenance": 0
+  },
+  "connection_pool": {
+    "max_connections": 5
   }
 }
 ```
@@ -682,6 +713,7 @@ python manage.py collectstatic --noinput
 - API docs: `https://your-domain.com/api/docs/`
 - Health check (canales): `https://your-domain.com/api/v1/analytics/health/`
 - Health check (database): `https://your-domain.com/api/v1/health/database/`
+- Health check (Redis): `https://your-domain.com/api/v1/health/redis/`
 - Admin panel: `https://your-domain.com/admin/`
 
 ## Licencia

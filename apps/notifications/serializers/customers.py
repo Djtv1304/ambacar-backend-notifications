@@ -44,8 +44,6 @@ class CustomerContactInfoSerializer(serializers.ModelSerializer):
             "email",
             "phone",
             "whatsapp",
-            "preferred_language",
-            "avatar_url",
             "channel_preferences",
             "created_at",
             "updated_at",
@@ -67,8 +65,6 @@ class CustomerContactInfoCreateSerializer(serializers.ModelSerializer):
             "email",
             "phone",
             "whatsapp",
-            "preferred_language",
-            "avatar_url",
         ]
 
 

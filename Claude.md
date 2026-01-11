@@ -223,6 +223,7 @@ CELERY_REDIS_BACKEND_USE_SSL = {"ssl_cert_reqs": ssl.CERT_NONE}
 | `/analytics/summary/` | GET | Métricas de notificaciones |
 | `/analytics/health/` | GET | Estado de salud de canales |
 | `/health/database/` | GET | Health check de PostgreSQL/Supabase |
+| `/health/redis/` | GET | Health check de Redis (Celery broker) |
 
 ### API Interna (`/api/internal/v1/`)
 
@@ -585,6 +586,11 @@ apps/
     - `apps/notifications/services/orchestration_engine.py` (validación principal)
     - `apps/notifications/views/events.py` (validación mínima universal)
     - `apps/notifications/views/templates.py` (validación en preview endpoint)
+- ✅ **Health check de Redis** (`/api/v1/health/redis/`):
+  - Endpoint para verificar conectividad a Redis (Celery broker) desde servicios Web/Worker/Beat
+  - Retorna: estado de conexión, latencia PING, longitud de colas (notifications, sync, maintenance), connection pool settings
+  - Útil para validar configuración de Redis en Coolify después de despliegues
+  - Archivos creados: `apps/core/views.py` (RedisHealthView), actualizado `apps/core/urls.py`
 
 ### Diciembre 2025
 - ✅ Implementado patrón Table Projection (sincronización async)
