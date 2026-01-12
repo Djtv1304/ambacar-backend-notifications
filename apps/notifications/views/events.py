@@ -1,6 +1,8 @@
 """
 Views for event dispatch.
 """
+import logging
+
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -15,6 +17,8 @@ from apps.notifications.services.orchestration_engine import (
     EventPayload,
 )
 from apps.notifications.services.template_service import template_service
+
+logger = logging.getLogger(__name__)
 
 
 # Minimum universal context fields (basic validation before dispatch)

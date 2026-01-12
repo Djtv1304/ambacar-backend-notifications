@@ -128,10 +128,29 @@ class WhatsAppAdapter(NotificationGateway):
     def _normalize_phone(self, phone: str) -> str:
         """
         Normalize phone number for Evolution API.
-        Removes spaces, dashes, parentheses.
-        Removes leading + if present.
+
+        Handles common formatting issues:
+        - Removes spaces, dashes, parentheses
+        - Removes leading + if present
+        - Fixes Ecuador format: +5930999... → 593999... (removes extra 0)
+
+        Examples:
+            "+593 0999223785" → "593999223785"
+            "+593999223785"   → "593999223785"
+            "0999223785"      → "0999223785" (local format, unchanged)
         """
+        # Remove spaces, dashes, parentheses
         cleaned = re.sub(r"[\s\-\(\)]", "", phone)
+
+        # Remove leading +
         if cleaned.startswith("+"):
             cleaned = cleaned[1:]
+
+        # Fix Ecuador format: 5930XXX → 593XXX (remove extra 0 after country code)
+        # Pattern: Country code 593 followed by 0 and then mobile prefix (9)
+        if cleaned.startswith("5930") and len(cleaned) == 13:
+            # Remove the extra 0: 5930999223785 → 593999223785
+            cleaned = "593" + cleaned[4:]
+            logger.info(f"Fixed Ecuador phone format: {phone} → {cleaned}")
+
         return cleaned
