@@ -16,7 +16,6 @@ class CustomerSyncSerializer(serializers.Serializer):
             "email": "juan.perez@example.com",
             "phone": "+593987654321",
             "whatsapp": "+593987654321",
-            "preferred_language": "es",
             "sync_version": 1
         }
     """
@@ -34,12 +33,6 @@ class CustomerSyncSerializer(serializers.Serializer):
     )
     whatsapp = serializers.CharField(
         max_length=20, required=False, allow_blank=True, allow_null=True
-    )
-    preferred_language = serializers.CharField(
-        max_length=5, default="es", required=False
-    )
-    avatar_url = serializers.URLField(
-        required=False, allow_null=True, allow_blank=True
     )
 
     # Metadata de sincronización

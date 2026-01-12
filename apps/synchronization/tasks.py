@@ -34,8 +34,6 @@ def sync_customer_task(self, customer_data: dict):
                 "email": "juan@example.com",
                 "phone": "+593987654321",
                 "whatsapp": "+593987654321",
-                "preferred_language": "es",
-                "avatar_url": "https://...",
                 "sync_version": 1  # optional
             }
 
@@ -55,8 +53,6 @@ def sync_customer_task(self, customer_data: dict):
             "email": customer_data.get("email"),
             "phone": customer_data.get("phone"),
             "whatsapp": customer_data.get("whatsapp"),
-            "preferred_language": customer_data.get("preferred_language", "es"),
-            "avatar_url": customer_data.get("avatar_url"),
         }
 
         # Limpiar valores None/vacíos para evitar sobrescribir con null
