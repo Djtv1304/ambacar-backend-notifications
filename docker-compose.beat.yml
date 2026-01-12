@@ -10,4 +10,12 @@ services:
     # El comando usa DatabaseScheduler para guardar los horarios en tu Supabase, no en un archivo local
     command: celery -A config beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler
     restart: always
+    # Conectar a la red de Coolify para comunicarse con Redis local
+    networks:
+      - coolify
     # Variables de entorno se inyectan desde Coolify
+
+# Conectar a la red externa de Coolify donde está Redis
+networks:
+  coolify:
+    external: true
