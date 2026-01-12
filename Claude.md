@@ -563,6 +563,91 @@ curl https://your-app.com/api/v1/health/redis/
 - ✅ Health check de Redis sigue mostrando "healthy"
 - ✅ Queue `notifications` pasa de 2 → 0 después de procesar
 
+### 9. Tareas se encolan pero Worker NO las procesa (send_notification_task no registrada)
+
+**Síntoma:**
+- Health check muestra tareas encoladas: `"notifications": 2`
+- Worker está corriendo y conectado a Redis (✅ PING successful)
+- Las tareas NUNCA se procesan (permanecen en cola indefinidamente)
+- Logs del Worker no muestran errores
+
+**Diagnóstico:**
+Ejecutar `python manage.py worker_health` desde el Worker muestra:
+```
+❌ send_notification_task is NOT registered
+   This means Django autodiscovery failed
+```
+
+**Causa:**
+El decorador `@shared_task()` en `apps/notifications/tasks.py` tenía un **parámetro inválido**:
+
+```python
+# INCORRECTO (Enero 2026)
+@shared_task(
+    bind=True,
+    max_retries=3,
+    default_retry_delay=60,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=600,  # ❌ PARÁMETRO INVÁLIDO - No existe en Celery
+    queue='notifications',
+)
+```
+
+Cuando Celery 5.3+ encuentra un parámetro inválido en `@shared_task()`, **falla silenciosamente** durante `autodiscover_tasks()` y la tarea NO se registra.
+
+**Solución (Enero 2026):**
+
+Removido el parámetro inválido `retry_backoff_max`:
+
+```python
+# CORRECTO
+@shared_task(
+    bind=True,
+    max_retries=3,
+    default_retry_delay=60,
+    autoretry_for=(Exception,),
+    retry_backoff=True,  # Exponential backoff (60s, 120s, 240s)
+    queue='notifications',
+)
+```
+
+**Verificación después del fix:**
+
+1. **Desde Django Web App:**
+```bash
+python manage.py celery_inspect
+# Debe mostrar: apps.notifications.tasks.send_notification_task en REGISTERED CELERY TASKS
+```
+
+2. **Desde Worker:**
+```bash
+python manage.py worker_health
+# Debe mostrar: ✅ send_notification_task is registered
+```
+
+3. **Disparar notificación de prueba:**
+```bash
+curl -X POST https://app.com/api/v1/notifications/events/dispatch/ ...
+```
+
+4. **Verificar que se procese:**
+```bash
+curl https://app.com/api/v1/health/redis/
+# "queues": { "notifications": 0 }  ← debe procesarse inmediatamente
+```
+
+**Resultado esperado:**
+- ✅ `send_notification_task` aparece en registered tasks
+- ✅ Worker procesa tareas encoladas inmediatamente
+- ✅ Queue `notifications` baja a 0 después de procesarse
+
+**Lección:**
+- Siempre verificar que los parámetros de `@shared_task()` sean válidos según la versión de Celery
+- Usar comandos de diagnóstico (`worker_health`, `celery_inspect`) para detectar fallos de autodiscovery
+- Parámetros válidos en Celery 5.3: `bind`, `max_retries`, `default_retry_delay`, `autoretry_for`, `retry_backoff`, `queue`
+- Parámetros INVÁLIDOS: `retry_backoff_max` (no existe)
+
 ---
 
 ## Estructura de Archivos Importante
@@ -711,6 +796,19 @@ apps/
     - Documentado cómo desactivar health check HTTP en Coolify para Worker
   - **Impacto**: Worker estable sin reinicios, notificaciones procesadas correctamente, compatible con ambos tipos de Redis
   - **Archivos modificados**: `docker-compose.worker.yml`, `config/settings/base.py`, `CLAUDE.md` (troubleshooting #8)
+- ✅ **Fix CRÍTICO: send_notification_task no se registraba (parámetro inválido en decorador)**:
+  - **Problema**: Worker corriendo y conectado a Redis, pero tareas encoladas NUNCA se procesaban
+  - **Síntomas**: Health check muestra tareas encoladas, Worker no las consume, sin errores en logs
+  - **Diagnóstico**: Comandos `worker_health` y `celery_inspect` revelaron que `send_notification_task` no estaba en registered tasks
+  - **Causa raíz**: Parámetro `retry_backoff_max=600` en decorador `@shared_task()` es INVÁLIDO en Celery 5.3 → autodiscovery falla silenciosamente
+  - **Solución**: Removido parámetro inválido, dejando solo `retry_backoff=True` (usa exponential backoff por defecto)
+  - **Impacto**: Tarea ahora se registra correctamente, Worker procesa notificaciones inmediatamente
+  - **Herramientas agregadas**:
+    - `redis_debug.py`: Inspeccionar y purgar colas de Redis
+    - `celery_inspect.py`: Ver todas las claves de Redis y tareas registradas
+    - `worker_health.py`: Health check ejecutable desde Worker
+    - `import_test.py`: Detectar errores de import en autodiscovery
+  - **Archivos modificados**: `apps/notifications/tasks.py`, `CLAUDE.md` (troubleshooting #9)
 
 ### Diciembre 2025
 - ✅ Implementado patrón Table Projection (sincronización async)

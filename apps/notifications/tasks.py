@@ -36,8 +36,7 @@ def get_adapters():
     max_retries=3,
     default_retry_delay=60,
     autoretry_for=(Exception,),
-    retry_backoff=True,
-    retry_backoff_max=600,
+    retry_backoff=True,  # Exponential backoff enabled
     queue='notifications',
 )
 def send_notification_task(self, log_id: str):
