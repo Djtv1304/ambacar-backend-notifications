@@ -809,6 +809,26 @@ apps/
     - `worker_health.py`: Health check ejecutable desde Worker
     - `import_test.py`: Detectar errores de import en autodiscovery
   - **Archivos modificados**: `apps/notifications/tasks.py`, `CLAUDE.md` (troubleshooting #9)
+- ✅ **Fix Networking: Conectar Worker y Beat a red Docker de Coolify**:
+  - **Problema**: Worker no podía conectarse a Redis local de Coolify - error "Temporary failure in name resolution"
+  - **Causa raíz**: Worker y Beat estaban en redes Docker aisladas, no podían resolver hostname de Redis (`dk40cs8ow40wksggws4csw8c`)
+  - **Diagnóstico**: Redis estaba en red `coolify`, pero los docker-compose de Worker/Beat no especificaban ninguna red
+  - **Solución**: Agregada configuración de red externa `coolify` a:
+    - `docker-compose.worker.yml` - Worker ahora puede conectarse a Redis
+    - `docker-compose.beat.yml` - Beat ahora puede conectarse a Redis
+  - **Configuración agregada**:
+    ```yaml
+    services:
+      worker:  # o beat
+        networks:
+          - coolify
+    networks:
+      coolify:
+        external: true
+    ```
+  - **REDIS_URL**: Usar hostname interno de Coolify (ej: `dk40cs8ow40wksggws4csw8c`), NO el nombre del servicio
+  - **Impacto**: Worker y Beat se conectan correctamente a Redis local, notificaciones se procesan
+  - **Archivos modificados**: `docker-compose.worker.yml`, `docker-compose.beat.yml`
 
 ### Diciembre 2025
 - ✅ Implementado patrón Table Projection (sincronización async)
