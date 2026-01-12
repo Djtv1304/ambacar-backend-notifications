@@ -293,3 +293,136 @@ def retry_failed_notifications():
 
     logger.info(f"Requeued {count} failed notifications for retry")
     return {"requeued": count}
+
+
+@shared_task(
+    bind=True,
+    max_retries=3,
+    default_retry_delay=2,  # Start with 2 seconds
+    retry_backoff=True,     # Exponential backoff: 2s, 4s, 8s
+    retry_backoff_max=10,   # Max 10 seconds between retries
+    queue='notifications',
+)
+def dispatch_event_task(self, event_data: dict):
+    """
+    Async task to dispatch notification events with automatic retries.
+
+    This task processes events through the orchestration engine with retry logic
+    to handle race conditions (e.g., customer not synced yet).
+
+    Retry strategy:
+    - Attempt 1: Immediate (0s)
+    - Attempt 2: After 2s (if customer still missing, maybe sync is in progress)
+    - Attempt 3: After 4s (exponential backoff)
+    - Attempt 4: After 8s (final attempt)
+
+    Args:
+        event_data: Dict containing event payload fields
+            {
+                "event_type": str,
+                "service_type_id": str,
+                "phase_id": str,
+                "customer_id": str,
+                "target": str,
+                "context": dict,
+                "taller_id": str (optional),
+                "subtype_id": str (optional),
+                "correlation_id": str (optional),
+            }
+
+    Returns:
+        dict: OrchestrationResult data
+
+    Raises:
+        Exception: After all retries exhausted
+    """
+    from apps.notifications.services.orchestration_engine import (
+        orchestration_engine,
+        EventPayload,
+    )
+
+    try:
+        # Build event payload from dict
+        payload = EventPayload(
+            event_type=event_data["event_type"],
+            service_type_id=event_data["service_type_id"],
+            phase_id=event_data["phase_id"],
+            customer_id=event_data["customer_id"],
+            target=event_data.get("target", "clients"),
+            context=event_data.get("context", {}),
+            taller_id=event_data.get("taller_id"),
+            subtype_id=event_data.get("subtype_id"),
+            correlation_id=event_data.get("correlation_id"),
+        )
+
+        logger.info(
+            f"🚀 [Attempt {self.request.retries + 1}/{self.max_retries + 1}] "
+            f"Processing event {payload.event_type} for customer {payload.customer_id}"
+        )
+
+        # Process event through orchestration engine
+        result = orchestration_engine.process_event(payload)
+
+        if not result.success:
+            # Check if error is retryable (customer not found, resource missing)
+            retryable_errors = [
+                "customer not found",
+                "customer",  # Generic customer-related errors
+                "not synced",
+                "does not exist",
+            ]
+
+            is_retryable = any(
+                err_keyword in " ".join(result.errors).lower()
+                for err_keyword in retryable_errors
+            )
+
+            if is_retryable:
+                logger.warning(
+                    f"⚠️ Retryable error on attempt {self.request.retries + 1}: {result.errors}. "
+                    f"Will retry in {self.default_retry_delay * (2 ** self.request.retries)}s"
+                )
+                # Retry with exponential backoff
+                raise self.retry(exc=Exception(" | ".join(result.errors)))
+            else:
+                # Non-retryable error (config not found, validation error, etc.)
+                logger.error(
+                    f"❌ Non-retryable error for customer {payload.customer_id}: {result.errors}"
+                )
+                return {
+                    "success": False,
+                    "errors": result.errors,
+                    "correlation_id": result.correlation_id,
+                    "retries_exhausted": False,
+                    "error_type": "non_retryable",
+                }
+
+        # Success!
+        logger.info(
+            f"✅ Successfully dispatched {result.notifications_queued} notifications "
+            f"for customer {payload.customer_id} (correlation_id: {result.correlation_id})"
+        )
+
+        return {
+            "success": result.success,
+            "notifications_queued": result.notifications_queued,
+            "errors": result.errors,
+            "correlation_id": result.correlation_id,
+        }
+
+    except Exception as exc:
+        # Final retry exhausted
+        if self.request.retries >= self.max_retries:
+            logger.error(
+                f"❌ FAILED after {self.max_retries + 1} attempts for customer {event_data['customer_id']}: {exc}",
+                exc_info=True
+            )
+            return {
+                "success": False,
+                "errors": [f"Failed after {self.max_retries + 1} retries: {str(exc)}"],
+                "correlation_id": event_data.get("correlation_id"),
+                "retries_exhausted": True,
+            }
+
+        # Will retry
+        raise

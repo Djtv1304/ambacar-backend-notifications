@@ -132,14 +132,20 @@ class OrchestrationEngine:
                     correlation_id=correlation_id,
                 )
 
-            # Step 3: Get customer info
-            customer = self._get_customer(payload.customer_id)
+            # Step 3: Get customer info (with auto-create from context if not exists)
+            customer = self._get_customer(payload.customer_id, payload.context)
             if not customer:
-                logger.error(f"Customer not found: {payload.customer_id}")
+                logger.error(
+                    f"❌ Customer {payload.customer_id} not found and could not be auto-created. "
+                    f"Ensure 'nombre' is provided in context or sync customer first."
+                )
                 return OrchestrationResult(
                     success=False,
                     notifications_queued=0,
-                    errors=["Customer not found"],
+                    errors=[
+                        f"Customer {payload.customer_id} not found. "
+                        "Provide 'nombre' in context or sync customer before dispatching notifications."
+                    ],
                     correlation_id=correlation_id,
                 )
 
@@ -500,13 +506,107 @@ class OrchestrationEngine:
             ).select_related("template", "phase")
         )
 
-    def _get_customer(self, customer_id: str) -> Optional[CustomerContactInfo]:
+    def _auto_create_customer_from_context(
+        self,
+        customer_id: str,
+        context: Dict[str, Any]
+    ) -> Optional[CustomerContactInfo]:
+        """
+        Auto-create customer from dispatch context if data is available.
+
+        This solves race conditions where sync hasn't completed yet.
+        The sync task will update the customer later (idempotent).
+
+        Args:
+            customer_id: Customer identifier from Core
+            context: Dispatch context that may contain customer data
+
+        Returns:
+            Created customer or None if insufficient data
+        """
+        # Extract customer data from context (case-insensitive)
+        nombre = None
+        email = None
+        phone = None
+        whatsapp = None
+
+        # Normalize context keys for case-insensitive lookup
+        normalized_context = {self._normalize(k): v for k, v in context.items()}
+
+        # Try to extract name
+        if "nombre" in normalized_context:
+            nombre = normalized_context["nombre"]
+
+        # Try to extract contact info
+        if "email" in normalized_context:
+            email = normalized_context["email"]
+        if "phone" in normalized_context or "telefono" in normalized_context:
+            phone = normalized_context.get("phone") or normalized_context.get("telefono")
+        if "whatsapp" in normalized_context:
+            whatsapp = normalized_context["whatsapp"]
+
+        # Minimum requirement: customer_id + nombre
+        if not nombre:
+            logger.warning(
+                f"Cannot auto-create customer {customer_id}: missing 'nombre' in context"
+            )
+            return None
+
+        # Split name into first_name and last_name
+        name_parts = nombre.strip().split(maxsplit=1)
+        first_name = name_parts[0]
+        last_name = name_parts[1] if len(name_parts) > 1 else ""
+
+        try:
+            customer = CustomerContactInfo.objects.create(
+                customer_id=customer_id,
+                first_name=first_name,
+                last_name=last_name,
+                email=email,
+                phone=phone,
+                whatsapp=whatsapp,
+            )
+
+            logger.info(
+                f"✅ Auto-created customer {customer_id} from dispatch context "
+                f"(name: {nombre}, email: {email})"
+            )
+
+            return customer
+
+        except Exception as e:
+            logger.error(
+                f"Failed to auto-create customer {customer_id}: {e}",
+                exc_info=True
+            )
+            return None
+
+    def _get_customer(self, customer_id: str, context: Dict[str, Any] = None) -> Optional[CustomerContactInfo]:
         """
         Retrieve customer contact information.
+
+        If customer doesn't exist and context is provided, attempt to auto-create
+        from context to solve race conditions with sync tasks.
+
+        Args:
+            customer_id: Customer identifier
+            context: Optional dispatch context for auto-creation
+
+        Returns:
+            CustomerContactInfo or None
         """
-        return CustomerContactInfo.objects.filter(
+        customer = CustomerContactInfo.objects.filter(
             customer_id=customer_id,
         ).first()
+
+        # If not found and we have context, try auto-create
+        if not customer and context:
+            logger.info(
+                f"Customer {customer_id} not found in database, attempting auto-create from context"
+            )
+            customer = self._auto_create_customer_from_context(customer_id, context)
+
+        return customer
 
     def _get_customer_preferences(
         self,

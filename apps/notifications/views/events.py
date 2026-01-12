@@ -162,6 +162,55 @@ based on orchestration configuration.
         # Process event through orchestration engine
         result = orchestration_engine.process_event(payload)
 
+        # Check if we should retry asynchronously (race condition detected)
+        if not result.success:
+            retryable_errors = ["customer", "not found", "not synced", "does not exist"]
+            is_retryable = any(
+                err_keyword in " ".join(result.errors).lower()
+                for err_keyword in retryable_errors
+            )
+
+            if is_retryable:
+                # Customer not found or similar race condition
+                # Queue async task with retries instead of failing immediately
+                from apps.notifications.tasks import dispatch_event_task
+
+                # Convert payload to dict for Celery serialization
+                event_dict = {
+                    "event_type": payload.event_type,
+                    "service_type_id": payload.service_type_id,
+                    "phase_id": payload.phase_id,
+                    "customer_id": payload.customer_id,
+                    "target": payload.target,
+                    "context": payload.context,
+                    "taller_id": payload.taller_id,
+                    "subtype_id": payload.subtype_id,
+                    "correlation_id": result.correlation_id,
+                }
+
+                # Queue task with retries (2s, 4s, 8s delays)
+                task = dispatch_event_task.apply_async(args=[event_dict])
+
+                logger.info(
+                    f"🔄 Retryable error detected for customer {payload.customer_id}. "
+                    f"Queued async task {task.id} with automatic retries."
+                )
+
+                return Response(
+                    {
+                        "success": True,  # Task queued successfully
+                        "correlation_id": result.correlation_id,
+                        "notifications_queued": 0,
+                        "message": (
+                            "Customer not immediately available. "
+                            "Event queued for processing with automatic retries."
+                        ),
+                        "task_id": task.id,
+                        "retry_strategy": "Will retry after 2s, 4s, and 8s if needed",
+                    },
+                    status=status.HTTP_202_ACCEPTED,
+                )
+
         # Build response
         response_data = {
             "success": result.success,
@@ -184,7 +233,6 @@ based on orchestration configuration.
                 for err_msg in [
                     "not found",
                     "no orchestration config",
-                    "customer not found",
                     "no es un uuid válido",
                     "is not a valid uuid",
                 ]
