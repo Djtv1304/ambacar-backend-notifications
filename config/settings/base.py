@@ -7,6 +7,7 @@ from pathlib import Path
 
 import dj_database_url
 from dotenv import load_dotenv
+from corsheaders.defaults import default_headers
 
 # Load environment variables from .env file
 load_dotenv()
@@ -152,10 +153,43 @@ SPECTACULAR_SETTINGS = {
 # CORS Configuration
 # =============================================================================
 CORS_ALLOW_ALL_ORIGINS = DEBUG
-CORS_ALLOWED_ORIGINS = os.environ.get(
-    "CORS_ALLOWED_ORIGINS",
-    "http://localhost:3000,http://127.0.0.1:3000"
-).split(",") if not DEBUG else []
+
+# Allowed origins for production (localhost + Vercel deployments)
+if not DEBUG:
+    # Static origins: localhost with common ports + production domain
+    CORS_ALLOWED_ORIGINS = os.environ.get(
+        "CORS_ALLOWED_ORIGINS",
+        "http://localhost:3000,http://localhost:3001,http://localhost:8080,http://localhost:5173,"
+        "http://127.0.0.1:3000,http://127.0.0.1:3001,http://127.0.0.1:8080,http://127.0.0.1:5173,"
+        "https://ambacar-service-pwa.vercel.app"
+    ).split(",")
+
+    # Dynamic origins: Vercel preview deployments (regex pattern)
+    # Pattern matches: https://ambacar-service-{hash}-diego-toscanos-projects.vercel.app
+    CORS_ALLOWED_ORIGIN_REGEXES = [
+        r"^https://ambacar-service-[a-z0-9]+-diego-toscanos-projects\.vercel\.app$",
+    ]
+else:
+    CORS_ALLOWED_ORIGINS = []
+    CORS_ALLOWED_ORIGIN_REGEXES = []
+
+# Allow credentials (cookies, authorization headers) in CORS requests
+CORS_ALLOW_CREDENTIALS = True
+
+# Allow custom headers (including internal API authentication)
+CORS_ALLOW_HEADERS = list(default_headers) + [
+    'x-internal-secret',  # Internal API authentication header
+]
+
+# Allow common HTTP methods
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
+]
 
 # =============================================================================
 # Celery Configuration

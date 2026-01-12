@@ -81,63 +81,79 @@ Copiar `.env.example` a `.env` y configurar las siguientes variables:
 ##### Frontend
 - `FRONTEND_URL`: URL del frontend para enlaces en emails
 
-### 4. Ejecutar migraciones
+##### CORS (Opcional)
+- `CORS_ALLOWED_ORIGINS`: Lista de orígenes permitidos separados por coma (opcional)
+
+**Nota**: Por defecto, el servicio ya está configurado para permitir peticiones desde:
+- **Localhost** con múltiples puertos: `3000`, `3001`, `8080`, `5173` (http y 127.0.0.1)
+- **Vercel producción**: `https://ambacar-service-pwa.vercel.app`
+- **Vercel preview deployments**: Todos los deployments de preview se detectan automáticamente usando regex pattern
+
+Si necesitas agregar orígenes adicionales, configura la variable `CORS_ALLOWED_ORIGINS`.
+
+### 4. Configuración CORS (Cross-Origin Resource Sharing)
+
+El servicio está preconfigurado para permitir peticiones desde múltiples orígenes sin necesidad de configuración adicional:
+
+#### Orígenes Permitidos por Defecto
+
+**Localhost (Desarrollo):**
+- `http://localhost:3000` / `http://127.0.0.1:3000`
+- `http://localhost:3001` / `http://127.0.0.1:3001`
+- `http://localhost:8080` / `http://127.0.0.1:8080`
+- `http://localhost:5173` / `http://127.0.0.1:5173`
+
+**Vercel (Producción):**
+- Dominio principal: `https://ambacar-service-pwa.vercel.app`
+- Preview deployments: Todos los deployments generados por commits se detectan automáticamente
+  - Ejemplo: `https://ambacar-service-abc123-diego-toscanos-projects.vercel.app`
+  - Patrón regex: `^https://ambacar-service-[a-z0-9]+-diego-toscanos-projects\.vercel\.app$`
+
+#### Configuraciones CORS Habilitadas
+
+- **Credenciales**: `CORS_ALLOW_CREDENTIALS = True` (permite cookies y headers de autorización)
+- **Headers personalizados**: Incluye `X-Internal-Secret` para API interna service-to-service
+- **Métodos HTTP**: GET, POST, PUT, PATCH, DELETE, OPTIONS
+
+#### Agregar Orígenes Personalizados
+
+Si necesitas permitir orígenes adicionales, configura la variable de entorno:
+
+```bash
+CORS_ALLOWED_ORIGINS=http://localhost:4200,https://custom-domain.com,https://otro-dominio.com
+```
+
+**Nota**: En modo DEBUG (`DEBUG=True`), todos los orígenes están permitidos automáticamente.
+
+### 5. Ejecutar migraciones
 
 ```bash
 python manage.py migrate
 ```
 
-### 5. Cargar datos iniciales
+### 6. Cargar datos iniciales
 
 ```bash
 python manage.py seed_initial_data
 ```
 
-### 6. Ejecutar servidor de desarrollo
+### 7. Ejecutar servidor de desarrollo
 
 ```bash
 python manage.py runserver
 ```
 
-### 7. Ejecutar Celery Worker (en otra terminal)
+### 8. Ejecutar Celery Worker (en otra terminal)
 
 ```bash
 celery -A config worker -l info -Q notifications,sync,maintenance --pool=solo
 ```
 
-### 8. Ejecutar Celery Beat (en otra terminal)
+### 9. Ejecutar Celery Beat (en otra terminal)
 
 ```bash
 celery -A config beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler
 ```
-
-## Docker
-
-El proyecto incluye 3 archivos de Docker Compose para diferentes propósitos:
-
-### Desarrollo Local (Todos los servicios)
-
-```bash
-docker-compose up -d
-```
-
-Incluye: web, celery worker, celery beat, redis, postgresql
-
-### Solo Worker (Producción)
-
-```bash
-docker-compose -f docker-compose.worker.yml up -d
-```
-
-Worker de Celery con colas: notifications, sync, maintenance (pool=solo)
-
-### Solo Beat Scheduler (Producción)
-
-```bash
-docker-compose -f docker-compose.beat.yml up -d
-```
-
-Celery Beat para tareas programadas (usa DatabaseScheduler)
 
 ## Documentación API
 
@@ -310,20 +326,47 @@ Celery Beat para tareas programadas (usa DatabaseScheduler)
 | GET | `/api/v1/health/database/` | Verificar estado de conexión a PostgreSQL/Supabase | `200` OK<br>`503` Service Unavailable |
 | GET | `/api/v1/health/redis/` | Verificar estado de conexión a Redis (Celery broker) | `200` OK<br>`503` Service Unavailable |
 
-**Database Health - Información incluida:**
-- Connection status (healthy/unhealthy)
-- Database engine, name, host, port, user
-- PostgreSQL version
-- Detection de Supabase (is_supabase flag)
-- Connection pool settings (max_age, health_checks_enabled)
+**Database Health** retorna:
+- Connection status, database engine, version
+- Host, port, user, database name
+- Detección automática de Supabase
+- Connection pool settings
 
-**Redis Health - Información incluida:**
-- Connection status (healthy/unhealthy)
-- PING response
-- Latency en milisegundos
+**Redis Health** retorna:
+- Connection status, PING response, latency
 - Longitud de colas (notifications, sync, maintenance)
-- Broker URL (con password enmascarado)
-- Connection pool settings (max_connections)
+- Broker URL (password enmascarado)
+- Connection pool settings
+
+**Ejemplo de respuesta - Database Health:**
+```json
+{
+  "status": "healthy",
+  "database": {
+    "engine": "postgresql",
+    "name": "postgres",
+    "host": "aws-1-sa-east-1.pooler.supabase.com",
+    "version": "PostgreSQL 15.1",
+    "is_supabase": true
+  },
+  "connection": {"max_age": 600, "health_checks_enabled": true}
+}
+```
+
+**Ejemplo de respuesta - Redis Health:**
+```json
+{
+  "status": "healthy",
+  "redis": {
+    "connected": true,
+    "ping": "PONG",
+    "latency_ms": 5.23,
+    "url": "redis://:****@localhost:6379/0"
+  },
+  "queues": {"notifications": 0, "sync": 0, "maintenance": 0},
+  "connection_pool": {"max_connections": 5}
+}
+```
 
 ### API Interna (`/api/internal/v1/`) - Service-to-Service
 
@@ -344,55 +387,6 @@ Celery Beat para tareas programadas (usa DatabaseScheduler)
 2. Encolado → Celery task en cola `sync`
 3. Procesamiento async → Crear/actualizar registro local
 4. Sincronización → Datos disponibles para orquestación de notificaciones
-
-### Notas sobre Health Checks
-
-El servicio incluye endpoints de health check para monitoreo y validación de despliegues:
-
-- **`/api/v1/analytics/health/`**: Verifica el estado de los canales de notificación (email, WhatsApp, push). Retorna tasas de éxito/fallo de las últimas 24 horas.
-- **`/api/v1/health/database/`**: Verifica la conexión a PostgreSQL/Supabase. Retorna información detallada de la base de datos incluyendo versión, host, puerto, y detecta automáticamente si está conectado a Supabase. Útil para validar configuración después de despliegues en Coolify.
-- **`/api/v1/health/redis/`**: Verifica la conexión a Redis (Celery broker). Retorna estado de conexión, latencia PING, longitud de colas (notifications, sync, maintenance), y configuración del connection pool. Útil para verificar conectividad desde los servicios Web/Worker/Beat en Coolify.
-
-**Ejemplo de respuesta del database health check**:
-```json
-{
-  "status": "healthy",
-  "database": {
-    "engine": "postgresql",
-    "name": "postgres",
-    "host": "aws-1-sa-east-1.pooler.supabase.com",
-    "port": 6543,
-    "user": "postgres.nnllhshzqyummzyotyiv",
-    "version": "PostgreSQL 15.1 on x86_64-pc-linux-gnu...",
-    "is_supabase": true
-  },
-  "connection": {
-    "max_age": 600,
-    "health_checks_enabled": true
-  }
-}
-```
-
-**Ejemplo de respuesta del Redis health check**:
-```json
-{
-  "status": "healthy",
-  "redis": {
-    "connected": true,
-    "ping": "PONG",
-    "latency_ms": 5.23,
-    "url": "redis://:****@ambacar-notifications-redis:6379/0"
-  },
-  "queues": {
-    "notifications": 0,
-    "sync": 0,
-    "maintenance": 0
-  },
-  "connection_pool": {
-    "max_connections": 5
-  }
-}
-```
 
 ## Tipos de Servicio y Fases
 
@@ -651,29 +645,47 @@ apps/
 ### Requisitos
 
 - PostgreSQL 15+ (recomendado: Supabase)
-- Redis 7+
+- Redis 7+ (soporta Upstash Redis con SSL y Redis local)
 - Python 3.11+
 - Variables de entorno configuradas (ver `.env.example`)
 
 ### Opción 1: Docker Compose (Recomendado)
 
-#### Web Server
+El proyecto incluye 3 archivos Docker Compose para diferentes escenarios de despliegue:
+
+#### Desarrollo Local (Todos los servicios)
+
+```bash
+docker-compose up -d
+```
+
+**Incluye:** web, celery worker, celery beat, redis, postgresql
+
+#### Solo Web Server (Producción)
 
 ```bash
 docker-compose up -d web
 ```
 
-#### Celery Worker (separado)
+**Para producción con Redis/PostgreSQL externos (Supabase, Upstash, etc.)**
+
+#### Solo Celery Worker (Producción)
 
 ```bash
 docker-compose -f docker-compose.worker.yml up -d
 ```
 
-#### Celery Beat (separado)
+**Worker de Celery con colas:** notifications, sync, maintenance (pool=solo)
+
+#### Solo Celery Beat (Producción)
 
 ```bash
 docker-compose -f docker-compose.beat.yml up -d
 ```
+
+**Celery Beat para tareas programadas** (usa DatabaseScheduler)
+
+**IMPORTANTE**: Solo debe haber **1 instancia de Beat** corriendo en producción para evitar tareas duplicadas.
 
 ### Opción 2: Servicios Separados (Coolify, Railway, etc.)
 
@@ -710,11 +722,21 @@ python manage.py collectstatic --noinput
 
 ### Verificación de Salud
 
-- API docs: `https://your-domain.com/api/docs/`
-- Health check (canales): `https://your-domain.com/api/v1/analytics/health/`
-- Health check (database): `https://your-domain.com/api/v1/health/database/`
-- Health check (Redis): `https://your-domain.com/api/v1/health/redis/`
-- Admin panel: `https://your-domain.com/admin/`
+El servicio incluye múltiples endpoints de health check para monitoreo y validación:
+
+#### Endpoints de Health Check
+
+- **API Docs**: `https://your-domain.com/api/docs/` - Swagger UI interactivo
+- **Health Check (Canales)**: `https://your-domain.com/api/v1/analytics/health/` - Estado de canales de notificación (email, WhatsApp, push) con tasas de éxito/fallo de últimas 24h
+- **Health Check (Database)**: `https://your-domain.com/api/v1/health/database/` - Verificación de PostgreSQL/Supabase con versión, host, y detección automática de Supabase
+- **Health Check (Redis)**: `https://your-domain.com/api/v1/health/redis/` - Verificación de Redis/Celery broker con latencia, longitud de colas, y connection pool
+- **Admin Panel**: `https://your-domain.com/admin/` - Django Admin para gestión
+
+#### Uso Recomendado
+
+- **En Coolify**: Configurar health checks en `/api/v1/health/database/` o `/api/v1/health/redis/`
+- **Monitoreo**: Usar `/api/v1/analytics/health/` para alertas sobre canales de notificación
+- **CI/CD**: Verificar `/api/v1/health/redis/` después de desplegar Worker/Beat
 
 ## Licencia
 

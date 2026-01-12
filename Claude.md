@@ -174,6 +174,41 @@ CELERY_REDIS_BACKEND_USE_SSL = {"ssl_cert_reqs": ssl.CERT_NONE}
 - **400 Bad Request**: service_type no encontrado, customer no encontrado, validación fallida
 - **500 Internal Server Error**: Errores del servidor (template rendering, etc.)
 
+### 6. Configuración CORS Multi-Origen (Enero 2026)
+
+**Problema:** Frontend en localhost y deployments de Vercel no podían hacer peticiones al backend debido a bloqueo de CORS.
+
+**Solución:** Configuración CORS flexible que soporta:
+
+1. **Múltiples puertos de localhost**:
+   - `http://localhost:3000`, `3001`, `8080`, `5173`
+   - `http://127.0.0.1:3000`, `3001`, `8080`, `5173`
+
+2. **Dominio principal de Vercel**:
+   - `https://ambacar-service-pwa.vercel.app`
+
+3. **Preview deployments de Vercel** (regex dinámico):
+   - Patrón: `^https://ambacar-service-[a-z0-9]+-diego-toscanos-projects\.vercel\.app$`
+   - Captura automáticamente todos los deployments generados por commits
+
+4. **Configuraciones adicionales**:
+   - `CORS_ALLOW_CREDENTIALS = True`: Permite cookies y headers de autorización
+   - `CORS_ALLOW_HEADERS`: Incluye headers personalizados como `X-Internal-Secret`
+   - `CORS_ALLOW_METHODS`: Todos los métodos HTTP (GET, POST, PUT, PATCH, DELETE, OPTIONS)
+
+**Archivo modificado:** `config/settings/base.py`
+
+**Variable de entorno opcional:**
+```bash
+CORS_ALLOWED_ORIGINS=http://localhost:3000,https://custom-domain.com
+```
+
+**Ventajas:**
+- ✅ Frontend local puede consumir API sin configuración adicional
+- ✅ Deployments de Vercel funcionan automáticamente (sin agregar cada URL)
+- ✅ Soporta credenciales para autenticación
+- ✅ Debug mode permite todos los orígenes (desarrollo local)
+
 ---
 
 ## Flujo de Orquestación (Dispatch)
@@ -277,6 +312,18 @@ VAPID_PUBLIC_KEY=<generar-con-web-push>
 VAPID_PRIVATE_KEY=<generar-con-web-push>
 VAPID_CONTACT_EMAIL=admin@ambacar.com
 ```
+
+### CORS (Frontend Origins)
+```bash
+# Opcional: Lista de orígenes permitidos separados por coma
+# Por defecto incluye: localhost (puertos 3000,3001,8080,5173) + producción Vercel
+CORS_ALLOWED_ORIGINS=http://localhost:3000,https://ambacar-service-pwa.vercel.app
+```
+
+**Nota:** El servicio está configurado para permitir automáticamente:
+- Localhost con múltiples puertos (3000, 3001, 8080, 5173)
+- Dominio principal de Vercel: `https://ambacar-service-pwa.vercel.app`
+- Preview deployments de Vercel: `https://ambacar-service-*-diego-toscanos-projects.vercel.app` (regex pattern)
 
 ---
 
@@ -829,6 +876,18 @@ apps/
   - **REDIS_URL**: Usar hostname interno de Coolify (ej: `dk40cs8ow40wksggws4csw8c`), NO el nombre del servicio
   - **Impacto**: Worker y Beat se conectan correctamente a Redis local, notificaciones se procesan
   - **Archivos modificados**: `docker-compose.worker.yml`, `docker-compose.beat.yml`
+- ✅ **Configuración CORS flexible para frontend multi-origen**:
+  - **Problema**: Frontend en localhost (múltiples puertos) y Vercel preview deployments bloqueados por CORS
+  - **Solución**: Configuración que soporta:
+    - Localhost con puertos comunes (3000, 3001, 8080, 5173)
+    - Dominio principal de Vercel (`ambacar-service-pwa.vercel.app`)
+    - Preview deployments de Vercel usando regex pattern (captura automáticamente todas las URLs de preview)
+  - **Configuraciones adicionales**:
+    - `CORS_ALLOW_CREDENTIALS = True` para cookies/autorización
+    - `CORS_ALLOW_HEADERS` incluye `X-Internal-Secret` para API interna
+    - Todos los métodos HTTP permitidos (GET, POST, PUT, PATCH, DELETE, OPTIONS)
+  - **Impacto**: Frontend puede consumir API desde cualquier entorno sin configuración manual de cada URL
+  - **Archivo modificado**: `config/settings/base.py`
 
 ### Diciembre 2025
 - ✅ Implementado patrón Table Projection (sincronización async)
