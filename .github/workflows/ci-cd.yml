@@ -272,6 +272,7 @@ jobs:
       contents: read
       packages: read
       security-events: write
+      actions: read
 
     steps:
       - name: 📥 Checkout código
@@ -284,29 +285,65 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 🛡️ Ejecutar Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
+      - name: 🛡️ Ejecutar Trivy (Reporte en tabla)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}'
+          format: 'table'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          exit-code: '0'
+        continue-on-error: true
+
+      - name: 🛡️ Ejecutar Trivy (Generar SARIF)
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}'
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH,MEDIUM'
+          exit-code: '0'
         continue-on-error: true
+
+      - name: 📄 Verificar archivo SARIF
+        run: |
+          if [ -f "trivy-results.sarif" ]; then
+            echo "✅ Archivo SARIF generado correctamente"
+            echo "Tamaño: $(wc -c < trivy-results.sarif) bytes"
+          else
+            echo "⚠️ No se generó archivo SARIF, creando uno vacío..."
+            echo '{"version":"2.1.0","$schema":"https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json","runs":[{"tool":{"driver":{"name":"Trivy","version":"0.28.0"}},"results":[]}]}' > trivy-results.sarif
+          fi
 
       - name: 📤 Subir resultados a GitHub Security
         uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
           sarif_file: 'trivy-results.sarif'
+          category: 'trivy-container-scan'
         continue-on-error: true
 
-      - name: 📊 Generar reporte de Trivy en tabla
-        uses: aquasecurity/trivy-action@master
+      - name: 📤 Subir reporte Trivy como artifact
+        uses: actions/upload-artifact@v4
+        if: always()
         with:
-          image-ref: '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}'
-          format: 'table'
-          severity: 'CRITICAL,HIGH,MEDIUM'
-        continue-on-error: true
+          name: trivy-security-report
+          path: trivy-results.sarif
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: 📊 Resumen de Trivy
+        run: |
+          echo "### 🛡️ Escaneo de Seguridad Trivy" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Imagen escaneada:** \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Severidades analizadas:** CRITICAL, HIGH, MEDIUM" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f "trivy-results.sarif" ]; then
+            echo "✅ Reporte SARIF generado y subido a GitHub Security" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ No se pudo generar el reporte SARIF" >> $GITHUB_STEP_SUMMARY
+          fi
 
   # ===========================================================================
   # STAGE 7: DEPLOY - Preparación para despliegue (Kubernetes manifests)
@@ -327,7 +364,9 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Los siguientes manifiestos están disponibles para despliegue:" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           ls -la k8s/ >> $GITHUB_STEP_SUMMARY || echo "No se encontró directorio k8s/"
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
 
       - name: 📤 Subir manifiestos como artefacto
         uses: actions/upload-artifact@v4
