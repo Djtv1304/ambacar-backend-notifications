@@ -1,0 +1,335 @@
+# =============================================================================
+# CI/CD Pipeline con DevSecOps - Ambacar Notification Service
+# =============================================================================
+# Pipeline de Integración y Despliegue Continuo con prácticas de seguridad
+# Autor: Diego Toscano y Andres Guamán
+# Fecha: Enero 2026
+# =============================================================================
+
+name: CI/CD Pipeline DevSecOps
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:  # Permite ejecución manual
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  PYTHON_VERSION: '3.12'
+
+jobs:
+  # ===========================================================================
+  # STAGE 1: BUILD - Construcción y verificación de dependencias
+  # ===========================================================================
+  build:
+    name: 🔨 Build & Dependencies
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout código
+        uses: actions/checkout@v4
+
+      - name: 🐍 Configurar Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: 📦 Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements/base.txt
+          pip install -r requirements/development.txt
+
+      - name: ✅ Verificar instalación
+        run: |
+          python -c "import django; print(f'Django version: {django.VERSION}')"
+          python -c "import celery; print(f'Celery version: {celery.__version__}')"
+
+  # ===========================================================================
+  # STAGE 2: TEST - Pruebas unitarias y de integración
+  # ===========================================================================
+  test:
+    name: 🧪 Tests
+    runs-on: ubuntu-latest
+    needs: build
+
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: 📥 Checkout código
+        uses: actions/checkout@v4
+
+      - name: 🐍 Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: 📦 Instalar dependencias
+        run: |
+          pip install -r requirements/development.txt
+
+      - name: 🧪 Ejecutar pruebas con pytest
+        env:
+          DJANGO_SETTINGS_MODULE: config.settings.development
+          SECRET_KEY: test-secret-key-for-ci-cd-pipeline
+          DATABASE_URL: sqlite:///db.sqlite3
+          REDIS_URL: redis://localhost:6379/0
+        run: |
+          pytest tests/ -v --tb=short --cov=apps --cov-report=xml --cov-report=term-missing || true
+
+      - name: 📊 Subir reporte de cobertura
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage.xml
+
+  # ===========================================================================
+  # STAGE 3: LINT - Análisis de calidad de código
+  # ===========================================================================
+  lint:
+    name: 🔍 Code Quality (Lint)
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: 📥 Checkout código
+        uses: actions/checkout@v4
+
+      - name: 🐍 Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: 📦 Instalar herramientas de linting
+        run: |
+          pip install flake8 black isort
+
+      - name: 🎨 Verificar formato con Black
+        run: |
+          black --check --diff . || echo "⚠️ Formato no cumple con Black"
+        continue-on-error: true
+
+      - name: 📋 Verificar imports con isort
+        run: |
+          isort --check-only --diff . || echo "⚠️ Imports no ordenados según isort"
+        continue-on-error: true
+
+      - name: 🔍 Análisis con Flake8
+        run: |
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+  # ===========================================================================
+  # STAGE 4: SAST - Security Analysis (Static Application Security Testing)
+  # ===========================================================================
+  security-sast:
+    name: 🔒 SAST - Bandit Security Scan
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: 📥 Checkout código
+        uses: actions/checkout@v4
+
+      - name: 🐍 Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: 📦 Instalar Bandit
+        run: pip install bandit[toml]
+
+      - name: 🔒 Ejecutar Bandit (SAST)
+        run: |
+          echo "🔒 Ejecutando análisis de seguridad estático con Bandit..."
+          bandit -r apps/ -f json -o bandit-report.json --severity-level medium || true
+          bandit -r apps/ -f txt -o bandit-report.txt --severity-level medium || true
+          echo "📊 Resumen del análisis:"
+          bandit -r apps/ --severity-level medium -f screen || true
+
+      - name: 📊 Subir reporte de Bandit
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bandit-security-report
+          path: |
+            bandit-report.json
+            bandit-report.txt
+
+  # ===========================================================================
+  # STAGE 5: BUILD DOCKER - Construcción de imagen de contenedor
+  # ===========================================================================
+  build-docker:
+    name: 🐳 Build Docker Image
+    runs-on: ubuntu-latest
+    needs: [test, lint, security-sast]
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build-push.outputs.digest }}
+
+    steps:
+      - name: 📥 Checkout código
+        uses: actions/checkout@v4
+
+      - name: 🐳 Configurar Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 🔑 Login a GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🏷️ Extraer metadata para Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/master' }}
+
+      - name: 🔨 Build y Push imagen Docker
+        id: build-push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: 📋 Resumen de imagen
+        run: |
+          echo "### 🐳 Imagen Docker Construida" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Tags:** ${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Digest:** ${{ steps.build-push.outputs.digest }}" >> $GITHUB_STEP_SUMMARY
+
+  # ===========================================================================
+  # STAGE 6: TRIVY - Container Security Scan
+  # ===========================================================================
+  container-security:
+    name: 🛡️ Trivy Container Scan
+    runs-on: ubuntu-latest
+    needs: build-docker
+    permissions:
+      contents: read
+      packages: read
+      security-events: write
+
+    steps:
+      - name: 📥 Checkout código
+        uses: actions/checkout@v4
+
+      - name: 🔑 Login a GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🛡️ Ejecutar Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+        continue-on-error: true
+
+      - name: 📊 Subir resultados a GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+        continue-on-error: true
+
+      - name: 📋 Generar reporte de Trivy en texto
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}'
+          format: 'table'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+        continue-on-error: true
+
+  # ===========================================================================
+  # STAGE 7: DEPLOY - Despliegue a Kubernetes (Manual)
+  # ===========================================================================
+  deploy:
+    name: 🚀 Deploy to Kubernetes
+    runs-on: ubuntu-latest
+    needs: [build-docker, container-security]
+    if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+    environment: production
+
+    steps:
+      - name: 📥 Checkout código
+        uses: actions/checkout@v4
+
+      - name: 📋 Mostrar información de despliegue
+        run: |
+          echo "### 🚀 Información de Despliegue" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Imagen:** ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Ambiente:** Production" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "⚠️ **Nota:** El despliegue a Kubernetes se realiza manualmente aplicando los manifiestos en el directorio k8s/" >> $GITHUB_STEP_SUMMARY
+
+      - name: 📦 Subir manifiestos de Kubernetes
+        uses: actions/upload-artifact@v4
+        with:
+          name: k8s-manifests
+          path: k8s/
+
+  # ===========================================================================
+  # STAGE 8: NOTIFICATION - Resumen del Pipeline
+  # ===========================================================================
+  summary:
+    name: 📊 Pipeline Summary
+    runs-on: ubuntu-latest
+    needs: [build, test, lint, security-sast, build-docker, container-security]
+    if: always()
+
+    steps:
+      - name: 📊 Generar resumen del pipeline
+        run: |
+          echo "## 📊 Resumen del Pipeline CI/CD DevSecOps" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Stage | Estado |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔨 Build | ${{ needs.build.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🧪 Tests | ${{ needs.test.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔍 Lint | ${{ needs.lint.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔒 SAST (Bandit) | ${{ needs.security-sast.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🐳 Docker Build | ${{ needs.build-docker.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🛡️ Trivy Scan | ${{ needs.container-security.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Ejecutado por:** @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY

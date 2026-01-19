@@ -1,0 +1,145 @@
+# =============================================================================
+# Kubernetes Deployment - Celery Worker
+# =============================================================================
+# Autor: Diego Toscano y Andres Guamán
+# Fecha: Enero 2026
+# Descripción: Deployment para el worker de Celery que procesa notificaciones
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ambacar-notifications-worker
+  labels:
+    app: ambacar-notifications
+    component: worker
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ambacar-notifications
+      component: worker
+  template:
+    metadata:
+      labels:
+        app: ambacar-notifications
+        component: worker
+        version: v1
+    spec:
+      containers:
+        - name: celery-worker
+          image: ghcr.io/djtv1304/ambacar-backend-notifications:latest
+          imagePullPolicy: Always
+          command:
+            - "celery"
+            - "-A"
+            - "config"
+            - "worker"
+            - "-l"
+            - "info"
+            - "-Q"
+            - "notifications,sync,maintenance"
+            - "--pool=solo"
+            - "--without-gossip"
+            - "--without-mingle"
+          env:
+            - name: DJANGO_SETTINGS_MODULE
+              value: "config.settings.production"
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ambacar-secrets
+                  key: django-secret-key
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ambacar-secrets
+                  key: database-url
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ambacar-secrets
+                  key: redis-url
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "300m"
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+      restartPolicy: Always
+
+---
+# =============================================================================
+# Kubernetes Deployment - Celery Beat (Scheduler)
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ambacar-notifications-beat
+  labels:
+    app: ambacar-notifications
+    component: beat
+    version: v1
+spec:
+  replicas: 1  # IMPORTANTE: Solo 1 réplica para evitar tareas duplicadas
+  selector:
+    matchLabels:
+      app: ambacar-notifications
+      component: beat
+  template:
+    metadata:
+      labels:
+        app: ambacar-notifications
+        component: beat
+        version: v1
+    spec:
+      containers:
+        - name: celery-beat
+          image: ghcr.io/djtv1304/ambacar-backend-notifications:latest
+          imagePullPolicy: Always
+          command:
+            - "celery"
+            - "-A"
+            - "config"
+            - "beat"
+            - "-l"
+            - "info"
+            - "--scheduler"
+            - "django_celery_beat.schedulers:DatabaseScheduler"
+          env:
+            - name: DJANGO_SETTINGS_MODULE
+              value: "config.settings.production"
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ambacar-secrets
+                  key: django-secret-key
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ambacar-secrets
+                  key: database-url
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ambacar-secrets
+                  key: redis-url
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+      restartPolicy: Always

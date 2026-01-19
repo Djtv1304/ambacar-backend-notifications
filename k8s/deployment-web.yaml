@@ -1,0 +1,148 @@
+# =============================================================================
+# Kubernetes Deployment - Ambacar Notification Service (Django Web App)
+# =============================================================================
+# Autor: Diego Toscano y Andres Guamán
+# Fecha: Enero 2026
+# Descripción: Deployment principal para la aplicación Django
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ambacar-notifications-web
+  labels:
+    app: ambacar-notifications
+    component: web
+    version: v1
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ambacar-notifications
+      component: web
+  template:
+    metadata:
+      labels:
+        app: ambacar-notifications
+        component: web
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: django-web
+          image: ghcr.io/djtv1304/ambacar-backend-notifications:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+              name: http
+              protocol: TCP
+          env:
+            - name: DJANGO_SETTINGS_MODULE
+              value: "config.settings.production"
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ambacar-secrets
+                  key: django-secret-key
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ambacar-secrets
+                  key: database-url
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ambacar-secrets
+                  key: redis-url
+            - name: ALLOWED_HOSTS
+              value: "*"
+            - name: DEBUG
+              value: "False"
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health/database/
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health/database/
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: false
+            allowPrivilegeEscalation: false
+      restartPolicy: Always
+
+---
+# =============================================================================
+# Service - Expone la aplicación Django dentro del cluster
+# =============================================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: ambacar-notifications-web
+  labels:
+    app: ambacar-notifications
+    component: web
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  selector:
+    app: ambacar-notifications
+    component: web
+
+---
+# =============================================================================
+# HorizontalPodAutoscaler - Escalado automático
+# =============================================================================
+
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ambacar-notifications-web-hpa
+  labels:
+    app: ambacar-notifications
+    component: web
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ambacar-notifications-web
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
