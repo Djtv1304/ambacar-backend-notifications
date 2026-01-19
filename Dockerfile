@@ -21,20 +21,16 @@ RUN pip install --no-cache-dir -r requirements/base.txt
 # Copy project
 COPY . .
 
-# ARG para collectstatic durante build (valor dummy, no se usa en runtime)
-ARG SECRET_KEY=dummy-secret-key-for-build-only
-ARG DATABASE_URL=sqlite:///db.sqlite3
-
-# Collect static files (usa los ARG temporales)
-RUN SECRET_KEY=${SECRET_KEY} DATABASE_URL=${DATABASE_URL} python manage.py collectstatic --noinput
-
-# Collect static files
-RUN python manage.py collectstatic --noinput
+# Create static directory
+RUN mkdir -p /app/staticfiles
 
 # Create non-root user
 RUN adduser --disabled-password --gecos '' appuser && \
     chown -R appuser:appuser /app
 USER appuser
 
-# Default command
-CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000"]
+# Expose port
+EXPOSE 8000
+
+# Default command - collectstatic runs at container start (when env vars are available)
+CMD ["sh", "-c", "python manage.py collectstatic --noinput && gunicorn config.wsgi:application --bind 0.0.0.0:8000"]
