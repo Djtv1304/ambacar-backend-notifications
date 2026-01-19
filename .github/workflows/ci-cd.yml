@@ -37,6 +37,9 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: 'pip'
+          cache-dependency-path: |
+            requirements/base.txt
+            requirements/development.txt
 
       - name: 📦 Instalar dependencias
         run: |
