@@ -205,3 +205,58 @@ class MaintenanceReminder(BaseModel):
         """Mark this reminder as completed."""
         self.status = ReminderStatus.COMPLETED
         self.save(update_fields=["status", "updated_at"])
+
+
+class VehiclePhaseConfig(BaseModel):
+    """
+    Configuración de fases personalizada para un vehículo específico.
+
+    Permite:
+    - Orden personalizado de fases
+    - Fases adicionales para un vehículo
+    - Activar/desactivar fases por vehículo
+
+    CASCADE DELETE: Si se elimina la fase global o el vehículo,
+    se elimina esta configuración automáticamente.
+    """
+    vehicle = models.ForeignKey(
+        Vehicle,
+        on_delete=models.CASCADE,
+        related_name='custom_phase_configs',
+        help_text="Vehículo al que pertenece esta configuración"
+    )
+    phase = models.ForeignKey(
+        'notifications.ServicePhase',
+        on_delete=models.CASCADE,
+        related_name='vehicle_configs',
+        help_text="Fase de servicio (de las fases globales)"
+    )
+    order = models.PositiveIntegerField(
+        help_text="Orden personalizado para este vehículo"
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Si esta fase está activa para este vehículo"
+    )
+
+    # Campos de sincronización
+    last_synced_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Última sincronización desde Core"
+    )
+    sync_version = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Versión de sincronización desde Core"
+    )
+
+    class Meta:
+        db_table = "vehicle_phase_configs"
+        unique_together = ["vehicle", "phase"]
+        ordering = ["order"]
+        verbose_name = "Vehicle Phase Config"
+        verbose_name_plural = "Vehicle Phase Configs"
+
+    def __str__(self):
+        return f"{self.vehicle.plate} - {self.phase.name} (order: {self.order})"

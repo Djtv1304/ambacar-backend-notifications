@@ -199,6 +199,7 @@ class PhaseChannelConfig(BaseModel):
     class Meta:
         db_table = "phase_channel_configs"
         unique_together = ["orchestration_config", "phase", "channel"]
+        ordering = ["phase__order", "channel"]
         verbose_name = "Phase Channel Config"
         verbose_name_plural = "Phase Channel Configs"
 

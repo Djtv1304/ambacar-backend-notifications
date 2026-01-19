@@ -7,7 +7,7 @@ from .orchestration import (
 )
 from .channels import TallerChannelConfig, PushSubscription
 from .customers import CustomerContactInfo, CustomerChannelPreference
-from .vehicles import Vehicle, MaintenanceReminder
+from .vehicles import Vehicle, MaintenanceReminder, VehiclePhaseConfig
 from .logs import NotificationLog
 
 __all__ = [
@@ -27,6 +27,7 @@ __all__ = [
     # Vehicles
     "Vehicle",
     "MaintenanceReminder",
+    "VehiclePhaseConfig",
     # Logs
     "NotificationLog",
 ]

@@ -1,6 +1,7 @@
 """
 Views for orchestration configuration.
 """
+from django.db.models import Prefetch
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -112,9 +113,12 @@ class OrchestrationConfigViewSet(viewsets.ModelViewSet):
         queryset = OrchestrationConfig.objects.select_related(
             "service_type"
         ).prefetch_related(
-            "phase_configs",
-            "phase_configs__phase",
-            "phase_configs__template",
+            Prefetch(
+                "phase_configs",
+                queryset=PhaseChannelConfig.objects.select_related(
+                    "phase", "template"
+                ).order_by("phase__order", "channel")
+            ),
         )
 
         # Filter by service_type
