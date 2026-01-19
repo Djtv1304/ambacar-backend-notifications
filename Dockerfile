@@ -21,6 +21,13 @@ RUN pip install --no-cache-dir -r requirements/base.txt
 # Copy project
 COPY . .
 
+# ARG para collectstatic durante build (valor dummy, no se usa en runtime)
+ARG SECRET_KEY=dummy-secret-key-for-build-only
+ARG DATABASE_URL=sqlite:///db.sqlite3
+
+# Collect static files (usa los ARG temporales)
+RUN SECRET_KEY=${SECRET_KEY} DATABASE_URL=${DATABASE_URL} python manage.py collectstatic --noinput
+
 # Collect static files
 RUN python manage.py collectstatic --noinput
 
