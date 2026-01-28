@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__icepanel__getLandscapes",
+      "WebFetch(domain:c4model.com)",
+      "mcp__icepanel__getLandscape",
+      "mcp__icepanel__getModelObjects",
+      "mcp__icepanel__getTechnologyCatalog"
+    ]
+  }
+}

@@ -272,7 +272,8 @@ class OrchestrationEngine:
 
         Custom events:
         - Don't use OrchestrationConfig
-        - Use only email and whatsapp channels (no push)
+        - Support all channels: email, whatsapp, and push
+        - Respect customer channel preferences (priority and enabled/disabled)
         - Require 'subject' and 'body' in context
         - Can optionally use template variables for personalization
 
@@ -329,44 +330,51 @@ class OrchestrationEngine:
                 correlation_id=correlation_id,
             )
 
-        # Step 5: Define channels for custom events (only email and whatsapp)
-        custom_channels = [NotificationChannel.EMAIL, NotificationChannel.WHATSAPP]
+        # Step 5: Resolve channels respecting customer preferences
+        channels_to_notify = self._resolve_custom_channels(customer)
 
-        # Step 6: Queue notifications for available channels
-        for channel in custom_channels:
-            recipient = customer.get_recipient_for_channel(channel)
-            if recipient:
-                try:
-                    dispatch_service.queue_notification(
-                        channel=channel,
-                        recipient=recipient,
-                        subject=rendered_subject,
-                        body=rendered_body,
-                        event_type=payload.event_type,
-                        customer_id=payload.customer_id,
-                        template_id=None,  # No template used for custom events
-                        template_name="custom_event",
-                        context=enriched_context,
-                        correlation_id=correlation_id,
-                        priority_order=[NotificationChannel.EMAIL, NotificationChannel.WHATSAPP],
-                    )
+        if not channels_to_notify:
+            return OrchestrationResult(
+                success=False,
+                notifications_queued=0,
+                errors=["No valid channels available for this customer"],
+                correlation_id=correlation_id,
+            )
 
-                    notifications_queued += 1
-                    logger.info(f"Queued custom {channel} notification to {recipient}")
+        # Build priority order for fallback
+        priority_order = [channel for channel, _ in channels_to_notify]
 
-                except Exception as e:
-                    error_msg = f"Failed to queue custom {channel}: {str(e)}"
-                    errors.append(error_msg)
-                    logger.error(error_msg)
-            else:
-                logger.info(f"No {channel} recipient for customer {payload.customer_id}")
+        # Step 6: Queue notifications for resolved channels
+        for channel, recipient in channels_to_notify:
+            try:
+                dispatch_service.queue_notification(
+                    channel=channel,
+                    recipient=recipient,
+                    subject=rendered_subject,
+                    body=rendered_body,
+                    event_type=payload.event_type,
+                    customer_id=payload.customer_id,
+                    template_id=None,  # No template used for custom events
+                    template_name="custom_event",
+                    context=enriched_context,
+                    correlation_id=correlation_id,
+                    priority_order=priority_order,
+                )
+
+                notifications_queued += 1
+                logger.info(f"Queued custom {channel} notification to {recipient}")
+
+            except Exception as e:
+                error_msg = f"Failed to queue custom {channel}: {str(e)}"
+                errors.append(error_msg)
+                logger.error(error_msg)
 
         # Step 7: Check if at least one notification was queued
         if notifications_queued == 0:
             return OrchestrationResult(
                 success=False,
                 notifications_queued=0,
-                errors=["No valid email or whatsapp contact for this customer"],
+                errors=["No valid channels available for this customer"],
                 correlation_id=correlation_id,
             )
 
@@ -376,6 +384,90 @@ class OrchestrationEngine:
             errors=errors,
             correlation_id=correlation_id,
         )
+
+    def _resolve_custom_channels(
+        self,
+        customer: CustomerContactInfo,
+    ) -> List[tuple]:
+        """
+        Resolve which channels to use for custom events, respecting customer preferences.
+
+        Returns list of (channel, recipient) tuples in priority order.
+
+        Logic:
+        1. Get customer preferences (enabled channels in priority order)
+        2. Get explicitly disabled channels
+        3. If customer has preferences: use only enabled preferences in priority order
+        4. If customer has no preferences: use default channels (email, whatsapp, push)
+        5. Filter out explicitly disabled channels
+        6. Verify recipient exists for each channel
+
+        Default channel order when no preferences: email, whatsapp, push
+        """
+        result = []
+
+        # All available channels for custom events
+        default_channels = [
+            NotificationChannel.EMAIL,
+            NotificationChannel.WHATSAPP,
+            NotificationChannel.PUSH,
+        ]
+
+        # Get customer preferences (enabled ones, ordered by priority)
+        enabled_preferences = list(
+            CustomerChannelPreference.objects.filter(
+                customer__customer_id=customer.customer_id,
+                enabled=True,
+            ).order_by("priority")
+        )
+
+        # Get explicitly disabled channels
+        disabled_channels = set(
+            CustomerChannelPreference.objects.filter(
+                customer__customer_id=customer.customer_id,
+                enabled=False,
+            ).values_list("channel", flat=True)
+        )
+
+        used_channels = set()
+
+        if enabled_preferences:
+            # Customer has preferences: use them in priority order
+            for pref in enabled_preferences:
+                if pref.channel not in used_channels:
+                    recipient = customer.get_recipient_for_channel(pref.channel)
+                    if recipient:
+                        result.append((pref.channel, recipient))
+                        used_channels.add(pref.channel)
+                        logger.debug(
+                            f"Added channel {pref.channel} from preference (priority {pref.priority})"
+                        )
+
+            # Add any default channels not explicitly disabled or already used
+            for channel in default_channels:
+                if channel not in used_channels and channel not in disabled_channels:
+                    recipient = customer.get_recipient_for_channel(channel)
+                    if recipient:
+                        result.append((channel, recipient))
+                        used_channels.add(channel)
+                        logger.debug(f"Added default channel {channel} (not in preferences)")
+
+        else:
+            # No preferences: use default channels (excluding explicitly disabled)
+            for channel in default_channels:
+                if channel not in disabled_channels:
+                    recipient = customer.get_recipient_for_channel(channel)
+                    if recipient:
+                        result.append((channel, recipient))
+                        used_channels.add(channel)
+                        logger.debug(f"Added default channel {channel} (no preferences set)")
+
+        logger.info(
+            f"Resolved {len(result)} channels for customer {customer.customer_id}: "
+            f"{[c for c, _ in result]}"
+        )
+
+        return result
 
     def _enrich_context_minimal(
         self,

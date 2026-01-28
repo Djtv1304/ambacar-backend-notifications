@@ -888,6 +888,24 @@ apps/
     - Todos los métodos HTTP permitidos (GET, POST, PUT, PATCH, DELETE, OPTIONS)
   - **Impacto**: Frontend puede consumir API desde cualquier entorno sin configuración manual de cada URL
   - **Archivo modificado**: `config/settings/base.py`
+- ✅ **Eventos CUSTOM ahora respetan preferencias y soportan Push**:
+  - **Problema**: Los eventos `event_type="custom"` estaban hardcodeados para usar SOLO email y whatsapp, ignorando:
+    - Las preferencias de canal del cliente (`CustomerChannelPreference`)
+    - El canal de Push Notifications
+  - **Síntoma**: Notificaciones custom (ej: login, bienvenida) no llegaban por Push aunque el cliente tuviera suscripción activa
+  - **Solución**:
+    - Nuevo método `_resolve_custom_channels()` que aplica la misma lógica de preferencias que eventos normales
+    - Canales disponibles para custom: `[email, whatsapp, push]` (antes solo email y whatsapp)
+    - Si cliente tiene preferencias: usa las preferencias habilitadas en orden de prioridad
+    - Si cliente NO tiene preferencias: usa los 3 canales por defecto
+    - Respeta canales explícitamente deshabilitados (`enabled=False`)
+  - **Comportamiento actualizado**:
+    - Eventos custom AHORA envían por Push si el cliente tiene suscripción activa
+    - Orden de prioridad se respeta igual que en eventos normales
+    - Canales deshabilitados por el cliente se excluyen correctamente
+  - **Archivo modificado**: `apps/notifications/services/orchestration_engine.py`
+    - Método modificado: `_process_custom_event()`
+    - Método agregado: `_resolve_custom_channels()`
 
 ### Diciembre 2025
 - ✅ Implementado patrón Table Projection (sincronización async)
